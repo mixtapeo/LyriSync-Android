@@ -131,13 +131,38 @@ class MainActivity : AppCompatActivity() {
     private var isSyncEnabled = true
     private val jishoHistory = mutableListOf<JishoLineSet>()
     private lateinit var jishoAdapter: JishoHistoryAdapter
+    private val preparedLineSets = mutableMapOf<Int, JishoLineSet>()
+
+    private fun prepareAllLyricLines() {
+        preparedLineSets.clear() // Clear old song's data
+        val kanjiRegex = Regex("[\\u4e00-\\u9faf]+")
+
+        for ((index, line) in parsedLyrics.withIndex()) {
+            val matches = kanjiRegex.findAll(line.text)
+            val lineDefinitions = mutableListOf<CharSequence>()
+
+            for (match in matches) {
+                val phrase = match.value
+                val cachedDef = songDictionary[phrase]
+
+                if (cachedDef != null) {
+                    lineDefinitions.add(cachedDef)
+                }
+            }
+
+            // If this line has Kanji, package it into a Big Box and save it to the Map
+            if (lineDefinitions.isNotEmpty()) {
+                preparedLineSets[index] = JishoLineSet(line.text, lineDefinitions)
+            }
+        }
+        Log.d("Lyrisync", "AOT Processing Complete: ${preparedLineSets.size} lines prepared.")
+    }
 
     private fun prefetchSongDictionary(lyrics: List<LyricLine>) {
         lifecycleScope.launch(Dispatchers.IO) {
             val db = AppDatabase.getDatabase(this@MainActivity)
             val dao = db.jishoDao()
 
-            // Find all Kanji/Phrases in the song
             val kanjiRegex = Regex("[\\u4e00-\\u9faf]+")
             val allPhrases = lyrics.flatMap { line ->
                 kanjiRegex.findAll(line.text).map { it.value }.toList()
@@ -152,38 +177,19 @@ class MainActivity : AppCompatActivity() {
                     songDictionary[phrase] = spannable
                 }
             }
-            Log.d("Lyrisync", "Offline DB Ready. Cached ${songDictionary.size} phrases.")
+            prepareAllLyricLines()
         }
     }
 
-    private fun displayCachedDefinitions(lineText: String) {
-        val kanjiRegex = Regex("[\\u4e00-\\u9faf]+")
-        val matches = kanjiRegex.findAll(lineText)
+    private fun displayPreparedLine(lineIndex: Int) {
+        // O(1) Instant Lookup
+        val preparedBox = preparedLineSets[lineIndex]
 
-        // Collect all the small definitions for this specific line
-        val lineDefinitions = mutableListOf<CharSequence>()
-
-        for (match in matches) {
-            val phrase = match.value
-            val cachedDef = songDictionary[phrase]
-
-            if (cachedDef != null) {
-                lineDefinitions.add(cachedDef)
-            }
-        }
-
-        // Only add to the Kanji History if we actually found definitions
-        if (lineDefinitions.isNotEmpty()) {
-            // Create the "Big Box" object
-            val bigBox = JishoLineSet(lineText, lineDefinitions)
-
-            // Push it to the top of the Kanji History
-            jishoHistory.add(0, bigBox)
+        if (preparedBox != null) {
+            jishoHistory.add(0, preparedBox)
 
             runOnUiThread {
                 jishoAdapter.notifyItemInserted(0)
-
-                // Auto-scroll the Kanji History to the top if Sync is on
                 if (isSyncEnabled) {
                     val jishoRv = findViewById<RecyclerView>(R.id.jishoRecyclerView)
                     jishoRv.scrollToPosition(0)
@@ -350,7 +356,8 @@ class MainActivity : AppCompatActivity() {
             lyricAdapter?.activeIndex = index
             lyricAdapter?.notifyDataSetChanged()
             if (isSyncEnabled) {
-                displayCachedDefinitions(parsedLyrics[index].text)
+                displayPreparedLine(index)
+
                 findViewById<RecyclerView>(R.id.lyricRecyclerView).smoothScrollToPosition(index)
             }
         }
