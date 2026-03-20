@@ -3,3 +3,11 @@
   - kanji only is just kanji in jisho
   - auto is using many words in one token
 - settings page to change to furigana, kata or hirigana under.
+- streaming jisho in bg
+- nicer resync (manual -> sync) animation and not a cut
+- ui doesnt go to neutral state if going from song with lyric to no lyric. it just keeps old page. must update
+- background using colors from album art?
+- send word to anki w time in song n all metadata
+- link an anki deck and only show words in jisho tab that arent in anki deck
+- big box around one line of words to group those
+- for some reason, some words arent translated

@@ -41,6 +41,31 @@ class LyricAdapter(
             holder.itemView.alpha = 0.3f // Faded out
             holder.jp.setTextColor(Color.WHITE)
         }
+        val spannable = android.text.SpannableString(lyrics[position].text)
+
+        // Find all Kanji in this specific line
+        val text = lyrics[position].text
+        for (i in text.indices) {
+            if (Character.UnicodeBlock.of(text[i]) == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS) {
+                val kanjiRegex = Regex("[\\u4e00-\\u9faf]+")
+                val matches = kanjiRegex.findAll(text)
+
+                for (match in matches) {
+                    spannable.setSpan(
+                        android.text.style.UnderlineSpan(),
+                        match.range.first, match.range.last + 1,
+                        android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                    )
+                    spannable.setSpan(
+                        android.text.style.ForegroundColorSpan(android.graphics.Color.parseColor("#FFD54F")),
+                        match.range.first, match.range.last + 1,
+                        android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                    )
+                }
+            }
+        }
+
+        holder.jp.text = spannable
     }
 
 
