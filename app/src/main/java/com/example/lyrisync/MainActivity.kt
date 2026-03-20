@@ -111,6 +111,12 @@ abstract class AppDatabase : RoomDatabase() {
         }
     }
 }
+// The new "Big Box" data model
+data class JishoLineSet(
+    val lyricText: String,
+    val definitions: List<CharSequence>
+)
+
 class MainActivity : AppCompatActivity() {
     private var translatedLyrics = listOf<String>()
     private var lyricAdapter: LyricAdapter? = null
@@ -123,8 +129,8 @@ class MainActivity : AppCompatActivity() {
     private var spotifyAppRemote: SpotifyAppRemote? = null
     private val songDictionary = mutableMapOf<String, CharSequence>()
     private var isSyncEnabled = true
-    private val jishoHistory = mutableListOf<CharSequence>()
-    private lateinit var jishoAdapter: JishoHistoryAdapter // Standard adapter similar to LyricAdapter
+    private val jishoHistory = mutableListOf<JishoLineSet>()
+    private lateinit var jishoAdapter: JishoHistoryAdapter
 
     private fun prefetchSongDictionary(lyrics: List<LyricLine>) {
         lifecycleScope.launch(Dispatchers.IO) {
@@ -154,22 +160,33 @@ class MainActivity : AppCompatActivity() {
         val kanjiRegex = Regex("[\\u4e00-\\u9faf]+")
         val matches = kanjiRegex.findAll(lineText)
 
+        // Collect all the small definitions for this specific line
+        val lineDefinitions = mutableListOf<CharSequence>()
+
         for (match in matches) {
             val phrase = match.value
             val cachedDef = songDictionary[phrase]
 
             if (cachedDef != null) {
-                jishoHistory.add(0, cachedDef)
+                lineDefinitions.add(cachedDef)
+            }
+        }
 
-                // We must be on the Main thread to touch the UI
-                runOnUiThread {
-                    jishoAdapter.notifyItemInserted(0)
+        // Only add to the Kanji History if we actually found definitions
+        if (lineDefinitions.isNotEmpty()) {
+            // Create the "Big Box" object
+            val bigBox = JishoLineSet(lineText, lineDefinitions)
 
-                    // ONLY scroll the history if Sync is ON
-                    if (isSyncEnabled) {
-                        val jishoRv = findViewById<RecyclerView>(R.id.jishoRecyclerView)
-                        jishoRv.scrollToPosition(0)
-                    }
+            // Push it to the top of the Kanji History
+            jishoHistory.add(0, bigBox)
+
+            runOnUiThread {
+                jishoAdapter.notifyItemInserted(0)
+
+                // Auto-scroll the Kanji History to the top if Sync is on
+                if (isSyncEnabled) {
+                    val jishoRv = findViewById<RecyclerView>(R.id.jishoRecyclerView)
+                    jishoRv.scrollToPosition(0)
                 }
             }
         }
@@ -386,24 +403,55 @@ fun parseLrc(lrcContent: String): List<LyricLine> {
     return lyricList.sortedBy { it.timeMs }
 }
 
-class JishoHistoryAdapter(private val history: List<CharSequence>) :
+class JishoHistoryAdapter(private val history: List<JishoLineSet>) :
     RecyclerView.Adapter<JishoHistoryAdapter.ViewHolder>() {
 
     class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
-        // We can reuse a simple layout or just a CardView with a TextView
-        val content: TextView = view.findViewById(R.id.cardContent)
+        val lineHeader: TextView = view.findViewById(R.id.lineHeader)
+        val container: android.widget.LinearLayout = view.findViewById(R.id.definitionsContainer)
     }
 
-    override fun onCreateViewHolder(
-        p0: ViewGroup,
-        p1: Int
-    ): ViewHolder {
-        val view = LayoutInflater.from(p0.context).inflate(R.layout.item_jisho_card, p0, false)
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
+        val view = LayoutInflater.from(parent.context)
+            .inflate(R.layout.item_jisho_card, parent, false)
         return ViewHolder(view)
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-        holder.content.text = history[position]
+        val item = history[position]
+
+        // 1. Set the Lyric Line Text
+        holder.lineHeader.text = item.lyricText
+
+        // 2. Clear out old boxes (RecyclerView recycles views, so we must clean it)
+        holder.container.removeAllViews()
+
+        // 3. Create a "Small Box" for every Kanji definition in this line
+        val context = holder.itemView.context
+        for (definition in item.definitions) {
+            val smallBox = TextView(context).apply {
+                text = definition
+                textSize = 15f
+                setTextColor(android.graphics.Color.parseColor("#E0E0E0"))
+                setPadding(32, 24, 32, 24) // Inner padding of the small box
+
+                // Add margins so the small boxes don't touch each other
+                val marginParams = android.widget.LinearLayout.LayoutParams(
+                    android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+                marginParams.setMargins(0, 0, 0, 16)
+                layoutParams = marginParams
+
+                // Draw the actual "Small Box" background (Lighter Gray with rounded corners)
+                val drawable = android.graphics.drawable.GradientDrawable()
+                drawable.setColor(android.graphics.Color.parseColor("#383838"))
+                drawable.cornerRadius = 16f
+                background = drawable
+            }
+            // Add the small box into the Big Box's container
+            holder.container.addView(smallBox)
+        }
     }
 
     override fun getItemCount() = history.size
