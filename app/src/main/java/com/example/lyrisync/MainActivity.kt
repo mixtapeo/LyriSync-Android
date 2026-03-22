@@ -1,5 +1,6 @@
 package com.example.lyrisync
 
+import android.content.Context
 import android.os.Bundle
 import android.util.Log
 import android.view.LayoutInflater
@@ -206,6 +207,12 @@ class MainActivity : AppCompatActivity() {
         findViewById<TextView>(R.id.songTitleText)?.text = "App Started! Connecting..."
         Log.d("Lyrisync", "onCreate finished")
 
+        val settingsBtn = findViewById<android.view.View>(R.id.settingsButton)
+        settingsBtn.setOnClickListener {
+            // An Intent is a formal request to the OS to launch a new component
+            val intent = android.content.Intent(this, SettingsActivity::class.java)
+            startActivity(intent)
+        }
         val recyclerView = findViewById<RecyclerView>(R.id.lyricRecyclerView)
         val snapHelper = androidx.recyclerview.widget.LinearSnapHelper()
         snapHelper.attachToRecyclerView(recyclerView)
@@ -341,7 +348,11 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
                 } else {
-                    Log.e("Lyrisync", "No synced lyrics found for $title")
+                    Log.e("Lyrisync", "No synced lyrics found for $title. Clearing lyrics")
+                    parsedLyrics = listOf()
+                    withContext(Dispatchers.Main) {
+                        lyricAdapter?.updateData(parsedLyrics, listOf())
+                    }
                 }
             } catch (e: Exception) {
                 Log.e("Lyrisync", "Fetch failed: ${e.message}", e)
@@ -355,9 +366,11 @@ class MainActivity : AppCompatActivity() {
             activeIndex = index
             lyricAdapter?.activeIndex = index
             lyricAdapter?.notifyDataSetChanged()
+            // Replace your "if (isSyncEnabled)" logic with this:
+            val sharedPrefs = getSharedPreferences("LyriSyncPrefs", Context.MODE_PRIVATE)
+            val isSyncEnabled = sharedPrefs.getBoolean("AUTO_SYNC", true)
             if (isSyncEnabled) {
                 displayPreparedLine(index)
-
                 findViewById<RecyclerView>(R.id.lyricRecyclerView).smoothScrollToPosition(index)
             }
         }

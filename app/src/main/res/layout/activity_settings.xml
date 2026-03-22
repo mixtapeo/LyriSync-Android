@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#121212"
+    android:orientation="vertical"
+    android:padding="24dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Settings"
+        android:textColor="#FFFFFF"
+        android:textSize="28sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="32dp"/>
+
+    <androidx.appcompat.widget.SwitchCompat
+        android:id="@+id/switchAutoScroll"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Auto-Scroll Lyrics &amp; History"
+        android:textColor="#E0E0E0"
+        android:textSize="18sp"
+        android:layout_marginBottom="24dp"/>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#333333"
+        android:layout_marginBottom="24dp"/>
+
+    <Button
+        android:id="@+id/btnClearHistory"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Clear Session History"
+        android:backgroundTint="#B3261E"
+        android:textColor="#FFFFFF"/>
+
+</LinearLayout>

@@ -36,6 +36,10 @@
                     android:scheme="lyrisync" />
             </intent-filter>
         </activity>
+        <activity
+            android:name=".SettingsActivity"
+            android:label="Settings"
+            android:theme="@style/Theme.LyriSync" />
     </application>
 
 </manifest>
