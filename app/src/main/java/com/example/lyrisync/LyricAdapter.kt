@@ -10,23 +10,24 @@ import androidx.recyclerview.widget.RecyclerView
 
 class LyricAdapter(
     private var lyrics: List<LyricLine> = emptyList(),
-    private var translations: List<String> = emptyList()
+    private var translations: List<String> = emptyList(),
+    // 1. Add the new Furigana list
+    private var furiganaList: List<String> = emptyList()
 ) : RecyclerView.Adapter<LyricAdapter.LyricViewHolder>() {
 
     var activeIndex: Int = -1
 
-    fun updateData(newLyrics: List<LyricLine>, newTranslations: List<String>) {
+    // 2. Update the function to accept 3 lists instead of 2
+    fun updateData(newLyrics: List<LyricLine>, newTranslations: List<String>, newFurigana: List<String>) {
         this.lyrics = newLyrics
         this.translations = newTranslations
+        this.furiganaList = newFurigana
         notifyDataSetChanged()
     }
 
     class LyricViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val jp: TextView = view.findViewById(R.id.itemJp)
         val en: TextView = view.findViewById(R.id.itemEn)
-
-        // 2. Safely look for a Furigana view.
-        // If you don't have this in your XML yet, it just returns null instead of crashing!
         val furigana: TextView? = view.findViewById(R.id.itemFurigana)
     }
 
@@ -38,6 +39,9 @@ class LyricAdapter(
     override fun onBindViewHolder(holder: LyricViewHolder, position: Int) {
         holder.jp.text = lyrics[position].text
         holder.en.text = translations.getOrNull(position) ?: ""
+
+        // 3. Bind the Furigana text to the new UI element
+        holder.furigana?.text = furiganaList.getOrNull(position) ?: ""
 
         if (position == activeIndex) {
             holder.itemView.alpha = 1.0f // Fully visible

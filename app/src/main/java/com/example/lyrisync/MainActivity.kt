@@ -95,7 +95,7 @@ abstract class AppDatabase : RoomDatabase() {
     companion object {
         private var INSTANCE: AppDatabase? = null
 
-        fun getDatabase(context: android.content.Context): AppDatabase {
+        fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
@@ -168,16 +168,45 @@ class MainActivity : AppCompatActivity() {
                 kanjiRegex.findAll(line.text).map { it.value }.toList()
             }.distinct()
 
+            // NEW: A temporary map to cache just the phonetic readings
+            val readingCache = mutableMapOf<String, String>()
+
             for (phrase in allPhrases) {
                 val entry = dao.getDefinition(phrase)
-                if (entry != null && !entry.definition.isNullOrEmpty()) {
-                    val spannable = android.text.SpannableStringBuilder()
+                if (entry != null) {
+                    // Save the reading for the lyrics view
                     val reading = entry.reading ?: ""
-                    spannable.append("【 $phrase 】 ($reading)\n→ ${entry.definition}\n\n")
-                    songDictionary[phrase] = spannable
+                    if (reading.isNotEmpty()) {
+                        readingCache[phrase] = reading
+                    }
+
+                    // Build the definition for the Jisho Big Boxes
+                    if (!entry.definition.isNullOrEmpty()) {
+                        val spannable = android.text.SpannableStringBuilder()
+                        spannable.append("【 $phrase 】 ($reading)\n→ ${entry.definition}\n\n")
+                        songDictionary[phrase] = spannable
+                    }
                 }
             }
+
+            // NEW: Build the Furigana string for every lyric line
+            val furiganaLyrics = lyrics.map { line ->
+                val matches = kanjiRegex.findAll(line.text)
+                val lineReadings = matches.mapNotNull { match ->
+                    readingCache[match.value]
+                }.toList()
+
+                // Join multiple readings on the same line with a bullet point
+                // Example: "きみ • おいこむ"
+                lineReadings.joinToString(" • ")
+            }
+
             prepareAllLyricLines()
+
+            // NEW: Push the final list of phonetic readings to the UI!
+            withContext(Dispatchers.Main) {
+                lyricAdapter?.updateData(parsedLyrics, translatedLyrics, furiganaLyrics)
+            }
         }
     }
 
@@ -311,15 +340,10 @@ class MainActivity : AppCompatActivity() {
             try {
                 val response = lrcService.searchLyrics(title, artist)
 
-                // Log all found IDs and snippet for debugging
                 response.forEach {
                     Log.d("Lyrisync", "Found LRC ID: ${it.id} | HasSynced: ${it.syncedLyrics != null}")
                 }
 
-                // Priority Logic:
-                // 1. Find entries with Synced Lyrics
-                // 2. Of those, find one containing Japanese characters (Kanji/Hiragana/Katakana)
-                // 3. Fallback to the first synced entry if no Japanese-specific entry is found
                 val jpRegex = Regex("[\\u3040-\\u30ff\\u4e00-\\u9faf]")
 
                 val bestMatch = response
@@ -336,12 +360,13 @@ class MainActivity : AppCompatActivity() {
                     val bulkResult = extractTextFromGoogle(translationResponse)
                     translatedLyrics = bulkResult.split("\n")
 
+                    // Start the database scan for dictionary and furigana
                     prefetchSongDictionary(parsedLyrics)
 
                     withContext(Dispatchers.Main) {
-                        lyricAdapter?.updateData(parsedLyrics, translatedLyrics)
+                        // FIX #1: Added emptyList() as the 3rd parameter while we wait for the DB
+                        lyricAdapter?.updateData(parsedLyrics, translatedLyrics, emptyList())
 
-                        // Trigger an immediate sync so we don't wait for the loop delay
                         spotifyAppRemote?.playerApi?.playerState?.setResultCallback { playerState ->
                             syncLyricsToPosition(playerState.playbackPosition)
                         }
@@ -350,7 +375,8 @@ class MainActivity : AppCompatActivity() {
                     Log.e("Lyrisync", "No synced lyrics found for $title. Clearing lyrics")
                     parsedLyrics = listOf()
                     withContext(Dispatchers.Main) {
-                        lyricAdapter?.updateData(parsedLyrics, listOf())
+                        // FIX #2: Added emptyList() as the 3rd parameter when no lyrics are found
+                        lyricAdapter?.updateData(parsedLyrics, listOf(), emptyList())
                     }
                 }
             } catch (e: Exception) {
