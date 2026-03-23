@@ -87,15 +87,33 @@
                         android:textSize="16sp"
                         android:textStyle="bold" />
 
-                    <ToggleButton
-                        android:id="@+id/syncToggleButton"
+                    <FrameLayout
                         android:layout_width="wrap_content"
-                        android:layout_height="48dp"
-                        android:background="@drawable/toggle_background"
-                        android:checked="true"
-                        android:textOff="Manual"
-                        android:textOn="Sync On"
-                        android:textSize="12sp" />
+                        android:layout_height="wrap_content"
+                        android:clipChildren="false">
+
+                        <ToggleButton
+                            android:id="@+id/syncToggleButton"
+                            android:layout_width="wrap_content"
+                            android:layout_height="36dp"
+                            android:background="@drawable/toggle_background"
+                            android:checked="true"
+                            android:textOff="Manual"
+                            android:textOn="Sync On"
+                            android:textSize="12sp" />
+
+                        <TextView
+                            android:id="@+id/floatingWarningText"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_gravity="center_horizontal|top"
+                            android:alpha="0"
+                            android:elevation="10dp"
+                            android:text="Sync Paused ⚠️"
+                            android:textColor="#E57373"
+                            android:textSize="12sp"
+                            android:textStyle="bold" />
+                    </FrameLayout>
                 </LinearLayout>
 
                 <View

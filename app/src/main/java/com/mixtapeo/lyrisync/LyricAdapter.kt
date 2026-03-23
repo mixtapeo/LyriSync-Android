@@ -13,7 +13,8 @@ class LyricAdapter(
     private var lyrics: List<LyricLine> = emptyList(),
     private var translations: List<String> = emptyList(),
     private var furiganaList: List<String> = emptyList(),
-    private var highlightedWords: List<List<String>> = emptyList()
+    private var highlightedWords: List<List<String>> = emptyList(),
+    private val onLineClick: (Int) -> Unit = {}
 ) : RecyclerView.Adapter<LyricAdapter.LyricViewHolder>() {
 
     var activeIndex: Int = -1
@@ -119,7 +120,11 @@ class LyricAdapter(
         }
 
         holder.jp.text = spannable
-    }
 
+        // 2. Fire the callback when the user taps anywhere on this lyric row!
+        holder.itemView.setOnClickListener {
+            onLineClick(position)
+        }
+    }
     override fun getItemCount() = lyrics.size
 }
