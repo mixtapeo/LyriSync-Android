@@ -348,11 +348,24 @@ class MainActivity : AppCompatActivity() {
         }
 
         // --- 3. BULLETPROOF BOTTOM NAVIGATION ---
+        val homeScreen = findViewById<android.view.View>(R.id.homeScreen)
+        val settingsScreen = findViewById<android.view.View>(R.id.settingsScreen)
+
+        // Get the exact width of the user's phone screen
+        val screenWidth = resources.displayMetrics.widthPixels.toFloat()
+
+        // Ensure settings is off-screen initially
+        settingsScreen.translationX = screenWidth
+
         val bottomNavigationView = findViewById<com.google.android.material.bottomnavigation.BottomNavigationView>(R.id.bottomNavigation)
 
         bottomNavigationView.setOnItemSelectedListener { item ->
             when (item.itemId) {
                 R.id.nav_home -> {
+                    // Slide Home in, Slide Settings out
+                    homeScreen.animate().translationX(0f).setDuration(300).start()
+                    settingsScreen.animate().translationX(screenWidth).setDuration(300).start()
+
                     findViewById<RecyclerView>(R.id.lyricRecyclerView).smoothScrollToPosition(0)
                     true
                 }
@@ -361,21 +374,27 @@ class MainActivity : AppCompatActivity() {
                     false
                 }
                 R.id.nav_settings -> {
-                    val intent = android.content.Intent(this, SettingsActivity::class.java)
-
-                    // Modern AndroidX Animation handling (Works on all Android versions)
-                    val options = androidx.core.app.ActivityOptionsCompat.makeCustomAnimation(
-                        this,
-                        R.anim.slide_in_right,
-                        R.anim.slide_out_left
-                    )
-
-                    startActivity(intent, options.toBundle())
-                    false
+                    // Slide Settings in, Slide Home out
+                    homeScreen.animate().translationX(-screenWidth).setDuration(300).start()
+                    settingsScreen.animate().translationX(0f).setDuration(300).start()
+                    true
                 }
                 else -> false
             }
         }
+        // --- BACK BUTTON INTERCEPTOR ---
+        onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                // If we are NOT on the home tab, slide back to home
+                if (bottomNavigationView.selectedItemId != R.id.nav_home) {
+                    bottomNavigationView.selectedItemId = R.id.nav_home // This automatically triggers the slide animation!
+                } else {
+                    // If we ARE on home, let the app close normally
+                    isEnabled = false
+                    onBackPressedDispatcher.onBackPressed()
+                }
+            }
+        })
     }
 
     override fun onStart() {
