@@ -52,15 +52,13 @@ data class LrcResponse(
 )
 
 data class LyricLine(
-    val timeMs: Long,
-    val text: String
+    val timeMs: Long, val text: String
 )
 
 interface LrcLibService {
     @GET("api/search")
     suspend fun searchLyrics(
-        @ApiQuery("track_name") track: String,
-        @ApiQuery("artist_name") artist: String
+        @ApiQuery("track_name") track: String, @ApiQuery("artist_name") artist: String
     ): List<LrcResponse>
 
     // for search function
@@ -82,17 +80,13 @@ interface TranslationService {
 }
 
 private val lrcService: LrcLibService by lazy {
-    retrofit2.Retrofit.Builder()
-        .baseUrl("https://lrclib.net/")
-        .addConverterFactory(retrofit2.converter.gson.GsonConverterFactory.create())
-        .build()
+    retrofit2.Retrofit.Builder().baseUrl("https://lrclib.net/")
+        .addConverterFactory(retrofit2.converter.gson.GsonConverterFactory.create()).build()
         .create(LrcLibService::class.java)
 }
 private val translationService: TranslationService by lazy {
-    retrofit2.Retrofit.Builder()
-        .baseUrl("https://translate.googleapis.com/")
-        .addConverterFactory(retrofit2.converter.gson.GsonConverterFactory.create())
-        .build()
+    retrofit2.Retrofit.Builder().baseUrl("https://translate.googleapis.com/")
+        .addConverterFactory(retrofit2.converter.gson.GsonConverterFactory.create()).build()
         .create(TranslationService::class.java)
 }
 
@@ -108,14 +102,12 @@ private val singleKanaRegex = Regex("[\\u3040-\\u30ff]")
 
 @Entity(
     tableName = "dictionary",
-    indices = [
-        androidx.room.Index(value = ["kanji"], name = "index_kanji"),
-        androidx.room.Index(value = ["reading"], name = "index_reading")
-    ]
+    indices = [androidx.room.Index(value = ["kanji"], name = "index_kanji"), androidx.room.Index(
+        value = ["reading"], name = "index_reading"
+    )]
 )
 data class JishoEntry(
-    @PrimaryKey
-    @ColumnInfo(name = "id") val id: String,
+    @PrimaryKey @ColumnInfo(name = "id") val id: String,
     @ColumnInfo(name = "kanji") val kanji: String?,
     @ColumnInfo(name = "reading") val reading: String?,
     @ColumnInfo(name = "meanings") val definition: String?
@@ -131,13 +123,8 @@ abstract class AppDatabase : RoomDatabase() {
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
-                    context.applicationContext,
-                    AppDatabase::class.java,
-                    "jmdict.db"
-                )
-                    .createFromAsset("databases/jmdict.db")
-                    .fallbackToDestructiveMigration()
-                    .build()
+                    context.applicationContext, AppDatabase::class.java, "jmdict.db"
+                ).createFromAsset("databases/jmdict.db").fallbackToDestructiveMigration().build()
                 INSTANCE = instance
                 instance
             }
@@ -156,8 +143,7 @@ data class JishoWord(
 
 // 2. Update the Big Box model to use our new word model
 data class JishoLineSet(
-    val lyricText: String,
-    val words: List<JishoWord>
+    val lyricText: String, val words: List<JishoWord>
 )
 
 class MainActivity : AppCompatActivity() {
@@ -326,8 +312,7 @@ class MainActivity : AppCompatActivity() {
                 lyricAdapter?.updateData(lyrics, translatedLyrics, furiganaLyrics, highlightsList)
                 Log.d("Lyrisync", "UI Update took: ${System.currentTimeMillis() - uiStart}ms")
                 Log.i(
-                    "Lyrisync",
-                    "TOTAL PREFETCH TIME: ${System.currentTimeMillis() - startTime}ms"
+                    "Lyrisync", "TOTAL PREFETCH TIME: ${System.currentTimeMillis() - startTime}ms"
                 )
             }
         }
@@ -406,10 +391,7 @@ class MainActivity : AppCompatActivity() {
                 withContext(Dispatchers.Main) {
                     // Update UI while we wait for the database
                     lyricAdapter?.updateData(
-                        parsedLyrics,
-                        translatedLyrics,
-                        emptyList(),
-                        emptyList()
+                        parsedLyrics, translatedLyrics, emptyList(), emptyList()
                     )
                     activeIndex = -1 // Reset the active highlight
                 }
@@ -455,8 +437,8 @@ class MainActivity : AppCompatActivity() {
             controller.hide(WindowInsetsCompat.Type.statusBars())
             controller.hide(WindowInsetsCompat.Type.navigationBars())
         } else {
-            @Suppress("DEPRECATION")
-            window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_FULLSCREEN
+            @Suppress("DEPRECATION") window.decorView.systemUiVisibility =
+                View.SYSTEM_UI_FLAG_FULLSCREEN
         }
 
         findViewById<TextView>(R.id.songTitleText)?.text = "App Started! Connecting..."
@@ -484,10 +466,8 @@ class MainActivity : AppCompatActivity() {
             val position = idToIndex[checkedId] ?: 2
             Log.i("LyriSync", "Subtitle mode changed: $position")
 
-            sharedPrefs.edit()
-                .putInt("SUBTITLE_MODE", position)
-                .putBoolean("REFRESH_LYRICS_REQUESTED", true)
-                .apply()
+            sharedPrefs.edit().putInt("SUBTITLE_MODE", position)
+                .putBoolean("REFRESH_LYRICS_REQUESTED", true).apply()
 
             // Trigger an immediate refresh of the list if lyrics are already loaded
             lyricAdapter?.notifyDataSetChanged()
@@ -580,8 +560,7 @@ class MainActivity : AppCompatActivity() {
         }
         // Set the initial default tooltip
         androidx.appcompat.widget.TooltipCompat.setTooltipText(
-            syncBtn,
-            "Click to pause Spotify auto-sync"
+            syncBtn, "Click to pause Spotify auto-sync"
         )
 
         // --- 3. BOTTOM NAVIGATION ---
@@ -700,8 +679,7 @@ class MainActivity : AppCompatActivity() {
         }
         // --- BACK BUTTON INTERCEPTOR ---
         onBackPressedDispatcher.addCallback(
-            this,
-            object : androidx.activity.OnBackPressedCallback(true) {
+            this, object : androidx.activity.OnBackPressedCallback(true) {
                 override fun handleOnBackPressed() {
                     // If we are NOT on the home tab, slide back to home
                     if (bottomNavigationView.selectedItemId != R.id.nav_home) {
@@ -718,10 +696,9 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStart() {
         super.onStart()
-        val connectionParams = ConnectionParams.Builder(clientId)
-            .setRedirectUri(redirectUri)
-            .showAuthView(true)
-            .build()
+        val connectionParams =
+            ConnectionParams.Builder(clientId).setRedirectUri(redirectUri).showAuthView(true)
+                .build()
         SpotifyAppRemote.connect(this, connectionParams, object : Connector.ConnectionListener {
             override fun onConnected(appRemote: SpotifyAppRemote) {
                 spotifyAppRemote = appRemote
@@ -781,8 +758,7 @@ class MainActivity : AppCompatActivity() {
                     val response = lrcService.searchLyrics(title, artist)
                     val jpRegex = Regex("[\\u3040-\\u30ff\\u4e00-\\u9faf]")
 
-                    val bestMatch = response
-                        .filter { it.syncedLyrics != null }
+                    val bestMatch = response.filter { it.syncedLyrics != null }
                         .firstOrNull { it.syncedLyrics?.contains(jpRegex) == true }
                         ?: response.firstOrNull { it.syncedLyrics != null }
 
@@ -800,10 +776,7 @@ class MainActivity : AppCompatActivity() {
                         withContext(Dispatchers.Main) {
                             Log.d("Lyrisync-Debug", "0. Pushing empty lists to UI while DB loads")
                             lyricAdapter?.updateData(
-                                parsedLyrics,
-                                translatedLyrics,
-                                emptyList(),
-                                emptyList()
+                                parsedLyrics, translatedLyrics, emptyList(), emptyList()
                             )
                             // no lyrics text
                             findViewById<TextView>(R.id.NoLyricsText).visibility = View.GONE
@@ -813,10 +786,7 @@ class MainActivity : AppCompatActivity() {
                         Log.d("Lyrisync-Debug", "1. No Lyrics Found")
                         withContext(Dispatchers.Main) {
                             lyricAdapter?.updateData(
-                                parsedLyrics,
-                                listOf(),
-                                emptyList(),
-                                emptyList()
+                                parsedLyrics, listOf(), emptyList(), emptyList()
                             )
                             // show no lyrics text
                             findViewById<TextView>(R.id.NoLyricsText).visibility = View.VISIBLE
@@ -920,8 +890,8 @@ class JishoHistoryAdapter(private val history: List<JishoLineSet>) :
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
-        val view = LayoutInflater.from(parent.context)
-            .inflate(R.layout.item_jisho_card, parent, false)
+        val view =
+            LayoutInflater.from(parent.context).inflate(R.layout.item_jisho_card, parent, false)
         return ViewHolder(view)
     }
 
@@ -936,8 +906,7 @@ class JishoHistoryAdapter(private val history: List<JishoLineSet>) :
             val smallBox = TextView(context).apply {
 
                 // --- 1. THE CHOPPING LOGIC ---
-                val limitedDefinitions = jishoWord.meaning
-                    .split(" / ")
+                val limitedDefinitions = jishoWord.meaning.split(" / ")
                     .take(definitionLimit) // Use the live slider limit!
                     .joinToString(" / ")
 
@@ -972,9 +941,7 @@ class JishoHistoryAdapter(private val history: List<JishoLineSet>) :
 
                 val typedValue = android.util.TypedValue()
                 context.theme.resolveAttribute(
-                    android.R.attr.selectableItemBackground,
-                    typedValue,
-                    true
+                    android.R.attr.selectableItemBackground, typedValue, true
                 )
                 foreground =
                     androidx.core.content.ContextCompat.getDrawable(context, typedValue.resourceId)
