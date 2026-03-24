@@ -1,5 +1,6 @@
 package com.mixtapeo.lyrisync
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.res.ColorStateList
 import android.os.Build
@@ -207,13 +208,14 @@ class MainActivity : AppCompatActivity() {
         return foundWords
     }
 
+    @SuppressLint("NotifyDataSetChanged")
     private fun prefetchSongDictionary(lyrics: List<LyricLine>) {
         val startTime = System.currentTimeMillis()
         Log.d("Lyrisync", "Prefetch started for ${lyrics.size} lines")
 
         runOnUiThread {
             jishoHistory.clear()
-            jishoAdapter.notifyDataSetChanged()
+                jishoAdapter.notifyDataSetChanged()
         }
 
         lifecycleScope.launch(Dispatchers.IO) {
@@ -447,7 +449,7 @@ class MainActivity : AppCompatActivity() {
         // setup settings views
         val radioGroupSubtitle = findViewById<RadioGroup>(R.id.spinnerSubtitleMode)
         val btnClearHistory = findViewById<Button>(R.id.wipeHistoryButton)
-        val sharedPrefs = getSharedPreferences("LyriSyncPrefs", Context.MODE_PRIVATE)
+        val sharedPrefs = getSharedPreferences("LyriSyncPrefs", MODE_PRIVATE)
 
         // --- Setup Subtitle Radio Logic ---
         val idToIndex = mapOf(
@@ -542,7 +544,7 @@ class MainActivity : AppCompatActivity() {
 
         // --- 2. SETUP SYNC TOGGLE & ANIMATION ---
         val syncBtn = findViewById<ToggleButton>(R.id.syncToggleButton)
-        val floatingWarning = findViewById<TextView>(R.id.floatingWarningText) // Grab the new text
+        findViewById<TextView>(R.id.floatingWarningText) // Grab the new text
         syncBtn.setOnCheckedChangeListener { _, isChecked ->
             if (isChecked) {
                 viewModel.setSource(LyricSource.SPOTIFY)
@@ -565,16 +567,16 @@ class MainActivity : AppCompatActivity() {
 
         // --- 3. BOTTOM NAVIGATION ---
         // The .post block waits for the UI to measure itself before doing math
-        val homeScreen = findViewById<android.view.View>(R.id.homeScreen)
-        val settingsScreen = findViewById<android.view.View>(R.id.settingsScreen)
-        val searchScreen = findViewById<android.view.View>(R.id.searchScreen)
+        val homeScreen = findViewById<View>(R.id.homeScreen)
+        val settingsScreen = findViewById<View>(R.id.settingsScreen)
+        val searchScreen = findViewById<View>(R.id.searchScreen)
         val bottomNavigationView =
             findViewById<com.google.android.material.bottomnavigation.BottomNavigationView>(R.id.bottomNavigation)
 
         // Setup Search UI
         val searchInput = findViewById<android.widget.EditText>(R.id.searchInput)
         val searchRv =
-            findViewById<androidx.recyclerview.widget.RecyclerView>(R.id.searchResultsRecyclerView)
+            findViewById<RecyclerView>(R.id.searchResultsRecyclerView)
         val searchAdapter = SearchAdapter { selectedResult ->
             loadManualSearchResult(selectedResult)
         }
@@ -582,13 +584,13 @@ class MainActivity : AppCompatActivity() {
         searchRv.layoutManager = androidx.recyclerview.widget.LinearLayoutManager(this)
 
         // Listen for the "Enter/Search" key on the keyboard
-        searchInput.setOnEditorActionListener { v, actionId, event ->
+        searchInput.setOnEditorActionListener { v, actionId, _ ->
             if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH) {
                 val query = searchInput.text.toString()
                 if (query.isNotBlank()) {
                     // Hide the keyboard
                     val imm =
-                        getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+                        getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
                     imm.hideSoftInputFromWindow(v.windowToken, 0)
 
                     // Fire the API Call
@@ -753,7 +755,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun fetchLyrics(title: String, artist: String) {
         lifecycleScope.launch(Dispatchers.IO) {
-            val result = withContext(Dispatchers.IO) {
+            withContext(Dispatchers.IO) {
                 try {
                     val response = lrcService.searchLyrics(title, artist)
                     val jpRegex = Regex("[\\u3040-\\u30ff\\u4e00-\\u9faf]")
@@ -835,7 +837,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        val sharedPrefs = getSharedPreferences("LyriSyncPrefs", Context.MODE_PRIVATE)
+        val sharedPrefs = getSharedPreferences("LyriSyncPrefs", MODE_PRIVATE)
         val wipeRequested = sharedPrefs.getBoolean("WIPE_REQUESTED", false)
         if (wipeRequested) {
             jishoHistory.clear()
@@ -917,7 +919,7 @@ class JishoHistoryAdapter(private val history: List<JishoLineSet>) :
 
                 text = spannable
                 textSize = 15f
-                setTextColor(android.graphics.Color.parseColor("#E0E0E0"))
+                setTextColor(Color.parseColor("#E0E0E0"))
                 setPadding(32, 24, 32, 24)
 
                 val marginParams = android.widget.LinearLayout.LayoutParams(
@@ -992,11 +994,11 @@ class SearchAdapter(
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val item = results[position]
         holder.title.text = item.name
-        holder.title.setTextColor(android.graphics.Color.WHITE)
+        holder.title.setTextColor(Color.WHITE)
         holder.title.textSize = 16f
 
         holder.artist.text = "${item.artistName} • Has Synced Lyrics: ${item.syncedLyrics != null}"
-        holder.artist.setTextColor(android.graphics.Color.parseColor("#A0A0A0"))
+        holder.artist.setTextColor(Color.parseColor("#A0A0A0"))
 
         // 2. Trigger the listener when the user taps this row
         holder.itemView.setOnClickListener {
