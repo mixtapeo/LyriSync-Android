@@ -25,7 +25,10 @@ class LyricAdapter(
         newFurigana: List<String>,
         newHighlights: List<List<String>>
     ) {
-        Log.d("Lyrisync-Debug", "LyricAdapter updateData: Lyrics(${newLyrics.size}), Furigana(${newFurigana.size}), Highlights(${newHighlights.size})")
+        Log.d(
+            "Lyrisync-Debug",
+            "LyricAdapter updateData: Lyrics(${newLyrics.size}), Furigana(${newFurigana.size}), Highlights(${newHighlights.size})"
+        )
         this.lyrics = newLyrics
         this.translations = newTranslations
         this.furiganaList = newFurigana
@@ -51,13 +54,22 @@ class LyricAdapter(
         val furiganaText = furiganaList.getOrNull(position) ?: ""
         holder.furigana?.text = furiganaText
 
+
         if (position == activeIndex) {
-            holder.itemView.alpha = 1.0f
-            holder.jp.setTextColor(android.graphics.Color.parseColor("#1DB954"))
+            // Active State: Spotify Green, fully opaque
+            holder.jp.setTextColor("#1DB954".toColorInt())
+            holder.jp.alpha = 1.0f
         } else {
-            holder.itemView.alpha = 0.3f
+            // Inactive State: Pure White, slightly dimmed
             holder.jp.setTextColor(android.graphics.Color.WHITE)
+            holder.jp.alpha = 0.5f // Dimming inactive lines looks super premium!
         }
+
+        holder.itemView.setOnClickListener {
+            onLineClick(position)
+        }
+
+
         val spannable = android.text.SpannableString(lyrics[position].text)
         val text = lyrics[position].text
 
@@ -97,7 +109,8 @@ class LyricAdapter(
             }
         }
 
-        val sharedPrefs = holder.itemView.context.getSharedPreferences("LyriSyncPrefs", Context.MODE_PRIVATE)
+        val sharedPrefs =
+            holder.itemView.context.getSharedPreferences("LyriSyncPrefs", Context.MODE_PRIVATE)
         val subtitleMode = sharedPrefs.getInt("SUBTITLE_MODE", 2)
 
         when (subtitleMode) {
@@ -105,14 +118,17 @@ class LyricAdapter(
                 holder.furigana?.visibility = View.GONE
                 holder.en.visibility = View.GONE
             }
+
             1 -> {
                 holder.furigana?.visibility = View.VISIBLE
                 holder.en.visibility = View.GONE
             }
+
             2 -> {
                 holder.furigana?.visibility = View.VISIBLE
                 holder.en.visibility = View.VISIBLE
             }
+
             3 -> {
                 holder.furigana?.visibility = View.GONE
                 holder.en.visibility = View.VISIBLE
@@ -126,5 +142,6 @@ class LyricAdapter(
             onLineClick(position)
         }
     }
+
     override fun getItemCount() = lyrics.size
 }

@@ -627,20 +627,22 @@ class MainActivity : AppCompatActivity() {
                 when (item.itemId) {
                     R.id.nav_home -> {
                         if (isSearchCurrentlyOpen) {
-                            // Instant Snap (No animation) so it's ready when the drawer drops
                             homeScreen.translationX = 0f
                             settingsScreen.translationX = trueWidth
                         } else {
-                            // Smooth Slide (Normal X-axis navigation)
                             homeScreen.animate().translationX(0f).setDuration(300).start()
-                            settingsScreen.animate().translationX(trueWidth).setDuration(300)
-                                .start()
+                            settingsScreen.animate().translationX(trueWidth).setDuration(300).start()
                         }
 
-                        // Always slide Search DOWN and out of the way
                         searchScreen.animate().translationY(trueHeight).setDuration(300).start()
 
-                        findViewById<RecyclerView>(R.id.lyricRecyclerView).smoothScrollToPosition(0)
+                        // THE FIX: Scroll to the active line, not to 0!
+                        val rv = findViewById<RecyclerView>(R.id.lyricRecyclerView)
+                        if (activeIndex != -1) {
+                            // If a song is playing, snap right back to where we were
+                            rv.scrollToPosition(activeIndex)
+                        }
+
                         true
                     }
 
@@ -649,7 +651,6 @@ class MainActivity : AppCompatActivity() {
                         searchScreen.animate().translationY(0f).setDuration(300).start()
                         true
                     }
-
                     R.id.nav_settings -> {
                         if (isSearchCurrentlyOpen) {
                             // Instant Snap (No animation)
@@ -741,7 +742,7 @@ class MainActivity : AppCompatActivity() {
                         syncLyricsToPosition(playerState.playbackPosition)
                     }
                 }
-                delay(100)
+                delay(32)
             }
         }
     }
