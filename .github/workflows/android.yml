@@ -38,7 +38,6 @@ jobs:
       - name: Setup Android Build Tools
         run: |
           echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "build-tools;34.0.0"
-
       # 2b. Sign the APK
       - name: Sign APK
         uses: r0adkll/sign-android-release@v1
