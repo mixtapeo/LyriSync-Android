@@ -23,6 +23,7 @@ For this reason, db is pushed to RAM to allow fast querying
 - streaming jisho in bg
 - nicer resync (manual -> sync) animation and not a cut
 - Loading circle for whenever loading: https://m3.material.io/components/progress-indicators/overview
+### Done: 
 - x underlining parts of sentences
 - x auto mode, kanji only mode
   - x kanji only is just kanji in jisho
