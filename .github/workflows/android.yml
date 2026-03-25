@@ -34,12 +34,18 @@ jobs:
           GITHUB_RUN_NUMBER: ${{ github.run_number }}
           GITHUB_REF_NAME: ${{ github.ref_name }}
 
-      # 2. Sign the APK (Uses a community action to handle the Keystore secret)
+      # 2a. Ensure Build Tools are installed (Force-fix for the 29.0.3 error)
+      - name: Setup Android Build Tools
+        run: |
+          echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "build-tools;34.0.0"
+
+      # 2b. Sign the APK
       - name: Sign APK
         uses: r0adkll/sign-android-release@v1
         id: sign_app
-        env: 
-            buildToolsVersion: "34.0.0"
+        env:
+          # Use 'BUILD_TOOLS_VERSION' (plural) to override the 29.0.3 default
+          BUILD_TOOLS_VERSION: "34.0.0"
         with:
           releaseDirectory: app/build/outputs/apk/release
           signingKeyBase64: ${{ secrets.KEYSTORE }}
