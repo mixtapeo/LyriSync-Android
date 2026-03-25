@@ -3,7 +3,8 @@ name: Android CI & Release
 on:
   push:
     branches: [ "master" ]
-    tags: [ 'v*' ] # Triggers release when you push a tag like v1.0
+    tags: 
+      - 'v*' # This is the critical part for the Release tab
   pull_request:
     branches: [ "master" ]
 
@@ -11,7 +12,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Needed to create the release
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
@@ -26,24 +27,20 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      # 1. Build the Release APK
       - name: Build with Gradle
         run: ./gradlew assembleRelease
         env:
-          # These pass the GitHub metadata into your Gradle script
           GITHUB_RUN_NUMBER: ${{ github.run_number }}
           GITHUB_REF_NAME: ${{ github.ref_name }}
 
-      # 2a. Ensure Build Tools are installed (Force-fix for the 29.0.3 error)
       - name: Setup Android Build Tools
         run: |
           echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "build-tools;34.0.0"
-      # 2b. Sign the APK
+
       - name: Sign APK
         uses: r0adkll/sign-android-release@v1
         id: sign_app
         env:
-          # Use 'BUILD_TOOLS_VERSION' (plural) to override the 29.0.3 default
           BUILD_TOOLS_VERSION: "34.0.0"
         with:
           releaseDirectory: app/build/outputs/apk/release
@@ -52,7 +49,6 @@ jobs:
           keyStorePassword: ${{ secrets.KEYSTORE_PASSWORD }}
           keyPassword: ${{ secrets.KEY_PASSWORD }}
 
-      # 3. Create GitHub Release (Only runs on tags)
       - name: Upload to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
