@@ -13,10 +13,9 @@ android {
         minSdk = 24
         targetSdk = 36
         // System.getenv returns a String?, so we handle the null case and convert to Int
-        versionCode = System.getenv("GITHUB_RUN_NUMBER")?.toInt() ?: 1
-
+        versionCode = 2
         // We trim "v" from the tag if it exists (e.g., v1.0.4 -> 1.0.4)
-        versionName = System.getenv("GITHUB_REF_NAME")?.replace("refs/tags/", "") ?: "1.0-debug"
+        versionName = "v0.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

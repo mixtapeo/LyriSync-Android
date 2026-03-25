@@ -16,6 +16,7 @@ For this reason, db is pushed to RAM to allow fast querying
 - Single page UI (activity_main.xml)
 
 ## Planned features / bugs lol:
+- add about, github and version boxes in settings
 - background using colors from album art?
 - send word to anki w time in song n all metadata
 - Add a pop up to inform user to open spotify when null error (spotify kills self)
@@ -23,6 +24,7 @@ For this reason, db is pushed to RAM to allow fast querying
 - streaming jisho in bg
 - nicer resync (manual -> sync) animation and not a cut
 - Loading circle for whenever loading: https://m3.material.io/components/progress-indicators/overview
+
 ### Done: 
 - x underlining parts of sentences
 - x auto mode, kanji only mode
