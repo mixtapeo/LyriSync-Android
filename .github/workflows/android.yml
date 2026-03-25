@@ -30,9 +30,12 @@ jobs:
           GITHUB_REF_NAME: '${{ github.ref_name }}'
       - name: Setup build tool version variable
         shell: bash
-        run: |
-          BUILD_TOOL_VERSION=$(ls /usr/local/lib/android/sdk/build-tools/ | tail -n 1)
+        run: >
+          BUILD_TOOL_VERSION=$(ls /usr/local/lib/android/sdk/build-tools/ | tail
+          -n 1)
+
           echo "BUILD_TOOL_VERSION=$BUILD_TOOL_VERSION" >> $GITHUB_ENV
+
           echo Last build tool version is: $BUILD_TOOL_VERSION
       - name: Sign APK
         uses: r0adkll/sign-android-release@v1
@@ -44,32 +47,28 @@ jobs:
           keyStorePassword: '${{ secrets.KEYSTORE_PASSWORD }}'
           keyPassword: '${{ secrets.KEY_PASSWORD }}'
         env:
-          BUILD_TOOLS_VERSION: ${{ env.BUILD_TOOL_VERSION }}
-
+          BUILD_TOOLS_VERSION: '${{ env.BUILD_TOOL_VERSION }}'
       - name: Rename and Isolate Signed APK
-        if: success() && startsWith(github.ref, 'refs/tags/')
+        if: 'success() && startsWith(github.ref, ''refs/tags/'')'
         shell: bash
         run: |
-          # Create a clean directory for the final artifact
+          # 1. Create a clean directory
           mkdir -p final_binaries
-          
-          OLD_PATH="${{ steps.sign_app.outputs.signedReleaseFile }}"
-          NEW_NAME="LyriSync-${{ github.ref_name }}.apk"
-          NEW_PATH="final_binaries/$NEW_NAME"
-          
-          # Move the file to the new clean folder
-          mv "$OLD_PATH" "$NEW_PATH"
-          
-          # Pass the specific NEW_PATH to the environment
-          echo "FINAL_APK=$NEW_PATH" >> $GITHUB_ENV
-          echo "Prepared $NEW_NAME for release."
 
-          - name: Upload to GitHub Release
-            if: startsWith(github.ref, 'refs/tags/')
-            uses: softprops/action-gh-release@v2
-            with:
-              # Point ONLY to the specific file in the clean folder
-              files: ${{ env.FINAL_APK }}
-              generate_release_notes: true
-            env:
-              GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 2. Get the source path from the previous step's output
+          # Using quotes to prevent shell expansion errors
+          SOURCE_FILE="${{ steps.sign_app.outputs.signedReleaseFile }}"
+
+          # 3. Define the new name using the tag
+          NEW_NAME="LyriSync-${{ github.ref_name }}.apk"
+          TARGET_PATH="final_binaries/$NEW_NAME"
+
+          # 4. Move the file
+          if [ -f "$SOURCE_FILE" ]; then
+            mv "$SOURCE_FILE" "$TARGET_PATH"
+            echo "FINAL_APK=$TARGET_PATH" >> $GITHUB_ENV
+            echo "Successfully prepared: $NEW_NAME"
+          else
+            echo "Error: Source APK not found at $SOURCE_FILE"
+            exit 1
+          fi
