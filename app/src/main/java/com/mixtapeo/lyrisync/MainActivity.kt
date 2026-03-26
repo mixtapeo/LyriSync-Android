@@ -617,11 +617,11 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        var lastSelectedTab = R.id.nav_home // Default to home
         homeScreen.post {
             val trueWidth = homeScreen.width.toFloat()
             val trueHeight = homeScreen.height.toFloat() // We need Height for Y-Axis sliding!
             var isSearchOpen = false
-            var isFirstTimeOpeningSearch = true // first time app is launched, search shows for some reason. So this when true will help toggle it visible from invisible
 
             // Initial State setup
             if (bottomNavigationView.selectedItemId == R.id.nav_settings) {
@@ -637,50 +637,49 @@ class MainActivity : AppCompatActivity() {
             bottomNavigationView.setOnItemSelectedListener { item ->
                 val trueWidth = homeScreen.width.toFloat()
                 val trueHeight = homeScreen.height.toFloat()
+
                 when (item.itemId) {
                     R.id.nav_home -> {
-                        // ONLY slide search down if we didn't just come from a manual search-close
                         if (isSearchOpen) {
                             searchScreen.animate().translationY(trueHeight).setDuration(300).start()
                             isSearchOpen = false
                         }
-
+                        lastSelectedTab = R.id.nav_home // REMEMBER HOME
                         homeScreen.animate().translationX(0f).setDuration(300).start()
                         settingsScreen.animate().translationX(trueWidth).setDuration(300).start()
-
-                        val rv = findViewById<RecyclerView>(R.id.lyricRecyclerView)
-                        if (activeIndex != -1) rv.scrollToPosition(activeIndex)
-                        true
-                    }
-
-                    R.id.nav_search -> {
-                        if (isSearchOpen) {
-                            // CLOSE
-                            searchScreen.animate().translationY(trueHeight).setDuration(300).start()
-                            isSearchOpen = false
-                            bottomNavigationView.selectedItemId = R.id.nav_home
-                        } else {
-                            // OPEN
-                            if (isFirstTimeOpeningSearch){
-                                searchScreen.visibility = View.VISIBLE // since hidden by default, we set to visible whenever it wants to be shown lol
-                            }
-                            searchScreen.animate().translationY(0f).setDuration(300).start()
-                            isSearchOpen = true
-                        }
                         true
                     }
 
                     R.id.nav_settings -> {
-                        // If search is open, slide it away
                         if (isSearchOpen) {
                             searchScreen.animate().translationY(trueHeight).setDuration(300).start()
                             isSearchOpen = false
                         }
+                        lastSelectedTab = R.id.nav_settings // REMEMBER SETTINGS
                         homeScreen.animate().translationX(-trueWidth).setDuration(300).start()
                         settingsScreen.animate().translationX(0f).setDuration(300).start()
                         true
                     }
 
+                    R.id.nav_search -> {
+                        if (isSearchOpen) {
+                            // CLOSE: Slide down
+                            searchScreen.animate().translationY(trueHeight).setDuration(300).start()
+                            isSearchOpen = false
+
+                            // RETURN TO PREVIOUS TAB
+                            bottomNavigationView.post {
+                                bottomNavigationView.selectedItemId = lastSelectedTab
+                            }
+                            false // Don't highlight search anymore
+                        } else {
+                            // OPEN: Slide up
+                            searchScreen.visibility = View.VISIBLE
+                            searchScreen.animate().translationY(0f).setDuration(300).start()
+                            isSearchOpen = true
+                            true // Highlight search while it's open
+                        }
+                    }
                     else -> false
                 }
             }
