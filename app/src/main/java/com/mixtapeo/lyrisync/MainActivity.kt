@@ -515,17 +515,24 @@ class MainActivity : AppCompatActivity() {
         jishoAdapter.definitionLimit = savedLimit
 
         // Listen for drags
-        defSlider.addOnChangeListener { _, value, _ ->
+        defSlider.addOnChangeListener { _, value, fromUser ->
             val newLimit = value.toInt()
 
-            // Save state permanently
-            sharedPrefs.edit().putInt("DEF_LIMIT", newLimit).apply()
+            // 1. TRIGGER VIBRATION
+            // We only vibrate if the change came from the user's finger
+            if (fromUser) {
+                Log.d("Lyrisync", "Slider changed to $newLimit")
+                defSlider.performHapticFeedback(
+                    android.view.HapticFeedbackConstants.CLOCK_TICK,
+                    android.view.HapticFeedbackConstants.FLAG_IGNORE_GLOBAL_SETTING // Optional: ensures it vibrates even if touch feedback is off
+                )
+            }
 
-            // Update Adapter and force an instant UI redraw
+            // 2. EXISTING LOGIC
+            sharedPrefs.edit().putInt("DEF_LIMIT", newLimit).apply()
             jishoAdapter.definitionLimit = newLimit
             jishoAdapter.notifyDataSetChanged()
         }
-
         // OBSERVE: When the activeIndex changes, update ONLY the affected rows
         lifecycleScope.launch {
             viewModel.activeIndex.collect { newIndex ->
