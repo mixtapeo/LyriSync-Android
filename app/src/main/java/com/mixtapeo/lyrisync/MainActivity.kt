@@ -2,6 +2,7 @@ package com.mixtapeo.lyrisync
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.Intent
 import android.content.res.ColorStateList
 import android.os.Build
 import android.os.Bundle
@@ -14,7 +15,7 @@ import android.widget.ToggleButton
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import android.graphics.Color
-import android.os.Build.VERSION.SDK_INT
+import android.net.Uri
 import android.widget.Button
 import android.widget.RadioGroup
 import android.widget.Toast
@@ -47,11 +48,8 @@ import androidx.core.view.WindowInsetsControllerCompat
 import android.os.Handler
 import android.os.Looper
 import android.widget.ImageView
-import android.widget.VideoView
+import android.widget.ProgressBar
 import com.spotify.android.appremote.api.error.SpotifyConnectionTerminatedException
-import coil.ImageLoader
-import coil.decode.GifDecoder
-import coil.decode.ImageDecoderDecoder
 import coil.load
 
 private val mainHandler = Handler(Looper.getMainLooper())
@@ -329,6 +327,20 @@ class MainActivity : AppCompatActivity() {
                     "Lyrisync", "TOTAL PREFETCH TIME: ${System.currentTimeMillis() - startTime}ms"
                 )
             }
+
+            withContext(Dispatchers.Main) {
+                val uiStart = System.currentTimeMillis()
+                lyricAdapter?.updateData(lyrics, translatedLyrics, furiganaLyrics, highlightsList)
+
+                // HIDE THE SPINNER HERE
+                findViewById<ProgressBar>(R.id.loadingCircle).visibility = View.GONE
+
+                Log.d("Lyrisync", "UI Update took: ${System.currentTimeMillis() - uiStart}ms")
+                Log.i(
+                    "Lyrisync",
+                    "TOTAL PREFETCH TIME: ${System.currentTimeMillis() - startTime}ms"
+                )
+            }
         }
     }
 
@@ -355,6 +367,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadManualSearchResult(selectedMatch: LrcResponse) {
+        findViewById<ProgressBar>(R.id.loadingCircle).visibility = View.VISIBLE
         viewModel.setSource(LyricSource.MANUAL) // Switch to Manual
         // 1. Close Search Drawer and go back to Home Screen
         val bottomNavigationView =
@@ -432,6 +445,7 @@ class MainActivity : AppCompatActivity() {
         // because we are in Manual mode.
     }
 
+    @SuppressLint("SetTextI18n", "NotifyDataSetChanged")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -451,7 +465,8 @@ class MainActivity : AppCompatActivity() {
             controller.hide(WindowInsetsCompat.Type.statusBars())
             controller.hide(WindowInsetsCompat.Type.navigationBars())
         } else {
-            @Suppress("DEPRECATION") window.decorView.systemUiVisibility =
+            @Suppress("DEPRECATION")
+            window.decorView.systemUiVisibility =
                 View.SYSTEM_UI_FLAG_FULLSCREEN
         }
 
@@ -480,8 +495,10 @@ class MainActivity : AppCompatActivity() {
             val position = idToIndex[checkedId] ?: 2
             Log.i("LyriSync", "Subtitle mode changed: $position")
 
-            sharedPrefs.edit().putInt("SUBTITLE_MODE", position)
-                .putBoolean("REFRESH_LYRICS_REQUESTED", true).apply()
+            sharedPrefs.edit {
+                putInt("SUBTITLE_MODE", position)
+                    .putBoolean("REFRESH_LYRICS_REQUESTED", true)
+            }
 
             // Trigger an immediate refresh of the list if lyrics are already loaded
             lyricAdapter?.notifyDataSetChanged()
@@ -493,6 +510,11 @@ class MainActivity : AppCompatActivity() {
             jishoHistory.clear()
             jishoAdapter.notifyDataSetChanged()
             Toast.makeText(this, "History cleared!", Toast.LENGTH_SHORT).show()
+        }
+
+        findViewById<Button>(R.id.btnGithub).setOnClickListener {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/mixtapeo"))
+            startActivity(intent)
         }
 
         // --- 1. SETUP MAIN CONTENT LISTS ---
@@ -581,7 +603,7 @@ class MainActivity : AppCompatActivity() {
         }
         // Set the initial default tooltip
         androidx.appcompat.widget.TooltipCompat.setTooltipText(
-            syncBtn, "Click to pause Spotify auto-sync"
+            syncBtn, "Click to pause LyriSync from scrolling on touch"
         )
 
         // --- 3. BOTTOM NAVIGATION ---
@@ -847,6 +869,21 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun fetchLyrics(title: String, artist: String) {
+        runOnUiThread {
+            findViewById<ProgressBar>(R.id.loadingCircle).visibility = View.VISIBLE
+            // 2. CLEAR EVERYTHING CURRENT
+            parsedLyrics = emptyList()
+            translatedLyrics = emptyList()
+            preparedLineSets.clear()
+            songDictionary.clear()
+
+            // 3. Tell the UI to go blank
+            lyricAdapter?.updateData(emptyList(), emptyList(), emptyList(), emptyList())
+
+            // 4. Reset the highlighted line
+            activeIndex = -1
+        }
+
         lifecycleScope.launch(Dispatchers.IO) {
             withContext(Dispatchers.IO) {
                 try {
@@ -877,18 +914,18 @@ class MainActivity : AppCompatActivity() {
                             findViewById<TextView>(R.id.NoLyricsText).visibility = View.GONE
                         }
                     } else {
-                        parsedLyrics = listOf()
-                        Log.d("Lyrisync-Debug", "1. No Lyrics Found")
+                        // Hide if no lyrics found
                         withContext(Dispatchers.Main) {
-                            lyricAdapter?.updateData(
-                                parsedLyrics, listOf(), emptyList(), emptyList()
-                            )
-                            // show no lyrics text
+                            findViewById<ProgressBar>(R.id.loadingCircle).visibility = View.GONE
+                            lyricAdapter?.updateData(listOf(), listOf(), emptyList(), emptyList())
                             findViewById<TextView>(R.id.NoLyricsText).visibility = View.VISIBLE
                         }
                     }
                 } catch (e: Exception) {
                     Log.e("Lyrisync", "Fetch failed: ${e.message}", e)
+                    withContext(Dispatchers.Main) {
+                        findViewById<ProgressBar>(R.id.loadingCircle).visibility = View.GONE
+                    }
                 }
             }
         }
