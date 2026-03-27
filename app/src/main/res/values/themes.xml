@@ -1,10 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.LyriSync" parent="Theme.Material3.DayNight.NoActionBar">
+        <!-- Main Brand Colors -->
+        <item name="colorPrimary">@color/brand_primary</item>
+        <item name="colorSecondary">@color/brand_secondary</item>
+        <item name="colorTertiary">@color/brand_tertiary</item>
+        <item name="android:windowBackground">@color/brand_background</item>
+
+        <!-- Surface colors -->
+        <item name="colorSurface">@color/brand_background</item>
+        <item name="colorSurfaceVariant">@color/brand_tertiary</item>
     </style>
+
     <style name="M3BottomNavOverride" parent="">
-        <item name="colorSecondaryContainer">#1DB954</item>
+        <item name="colorSecondaryContainer">@color/brand_secondary</item>
+        <item name="colorOnSecondaryContainer">@color/white</item>
     </style>
+
     <style name="RoundedDialog" parent="Theme.MaterialComponents.DayNight.Dialog.Alert">
         <item name="android:windowBackground">@drawable/dialog_background</item>
     </style>

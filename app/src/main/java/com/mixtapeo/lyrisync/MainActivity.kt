@@ -47,11 +47,13 @@ import androidx.core.view.WindowInsetsControllerCompat
 import android.os.Handler
 import android.os.Looper
 import android.widget.ImageView
+import android.widget.VideoView
 import com.spotify.android.appremote.api.error.SpotifyConnectionTerminatedException
 import coil.ImageLoader
 import coil.decode.GifDecoder
 import coil.decode.ImageDecoderDecoder
 import coil.load
+
 private val mainHandler = Handler(Looper.getMainLooper())
 
 data class LrcResponse(
@@ -461,7 +463,6 @@ class MainActivity : AppCompatActivity() {
         val btnClearHistory = findViewById<Button>(R.id.wipeHistoryButton)
         val sharedPrefs = getSharedPreferences("LyriSyncPrefs", MODE_PRIVATE)
 
-
         // --- Setup Subtitle Radio Logic ---
         val idToIndex = mapOf(
             R.id.radioNone to 0,
@@ -735,31 +736,31 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // Setup Coil ImageLoader with GIF support
     private fun showFirstStartDialog(prefs: android.content.SharedPreferences) {
         val overlay = findViewById<View>(R.id.onboardingOverlay)
+        val gifAuthView = findViewById<ImageView>(R.id.videoAuth)
+        val gifBroadcastView = findViewById<ImageView>(R.id.gifBroadcast)
         val btnOk = findViewById<Button>(R.id.btnOnboardingOk)
         val btnNever = findViewById<Button>(R.id.btnOnboardingNever)
-        val gifAuthView = findViewById<ImageView>(R.id.gifAuth)
-        val gifBroadcastView = findViewById<ImageView>(R.id.gifBroadcast)
 
         overlay.visibility = View.VISIBLE
 
-        // 1. Setup Coil ImageLoader with GIF support
-        val imageLoader = ImageLoader.Builder(this)
+        // 1. Create a specialized Loader for animations
+        val animationLoader = coil.ImageLoader.Builder(this)
             .components {
-                if (SDK_INT >= 28) {
-                    add(ImageDecoderDecoder.Factory())
+                if (android.os.Build.VERSION.SDK_INT >= 28) {
+                    add(coil.decode.ImageDecoderDecoder.Factory())
                 } else {
-                    add(GifDecoder.Factory())
+                    add(coil.decode.GifDecoder.Factory())
                 }
             }
             .build()
 
-        // 2. Load the GIFs (Ensure these files exist in res/drawable)
-        gifAuthView.load(R.drawable.gif_spotify_auth, imageLoader)
-        gifBroadcastView.load(R.drawable.gif_spotify_broadcast, imageLoader)
+        // 2. Load using that specific loader
+        gifAuthView.load(R.raw.gif1, animationLoader)
+        gifBroadcastView.load(R.raw.gif1, animationLoader)
 
-        // 3. Handle Button Actions
         btnOk.setOnClickListener {
             overlay.visibility = View.GONE
             reconnectToSpotify()
