@@ -41,6 +41,15 @@ android {
     viewBinding {
         enable = true
     }
+    packaging {
+        resources {
+            excludes += "META-INF/CONTRIBUTORS.md"
+
+            // Pro-tip: Exclude these too, as Kuromoji might throw them next!
+            excludes += "META-INF/LICENSE.md"
+            excludes += "META-INF/DEPENDENCIES"
+        }
+    }
 }
 
 dependencies {
@@ -80,4 +89,5 @@ dependencies {
     ksp(libs.room.compiler)
     implementation(libs.coil.gif)
     implementation(libs.coil)
+    implementation("com.atilika.kuromoji:kuromoji-ipadic:0.9.0")
 }

@@ -52,7 +52,7 @@ import android.widget.ProgressBar
 import com.spotify.android.appremote.api.error.SpotifyConnectionTerminatedException
 import coil.load
 import com.spotify.protocol.client.error.RemoteClientException
-
+import com.atilika.kuromoji.ipadic.Tokenizer
 private val mainHandler = Handler(Looper.getMainLooper())
 
 data class LrcResponse(
@@ -327,7 +327,7 @@ class MainActivity : AppCompatActivity() {
                 spotifyAppRemote?.playerApi?.playerState?.setResultCallback { playerState ->
                     val track = playerState.track
                     if (track != null) {
-                        fetchLyrics(track.name, track.artist.name)
+                        // fetchLyrics(track.name, track.artist.name)
                     }
                 }
             } else {
@@ -835,7 +835,12 @@ class MainActivity : AppCompatActivity() {
             val dbLoadStart = System.currentTimeMillis()
             val db = AppDatabase.getDatabase(this@MainActivity)
             val dao = db.jishoDao()
-            Log.d("Lyrisync", "DB/DAO Init took: ${System.currentTimeMillis() - dbLoadStart}ms")
+
+            // 1. Initialize Kuromoji Tokenizer
+            // Done on the IO dispatcher because loading the dictionary takes a moment
+            val tokenizer = Tokenizer()
+
+            Log.d("Lyrisync", "DB/DAO & Tokenizer Init took: ${System.currentTimeMillis() - dbLoadStart}ms")
 
             val furiganaLyrics = mutableListOf<String>()
             val highlightsList = mutableListOf<List<String>>()
@@ -844,6 +849,7 @@ class MainActivity : AppCompatActivity() {
             songDictionary.clear()
             queryCache.clear()
 
+            val jpCharacterRegex = Regex("[\\u3040-\\u30ff\\u4e00-\\u9faf]")
             val loopStart = System.currentTimeMillis()
 
             for ((index, line) in lyrics.withIndex()) {
@@ -856,80 +862,91 @@ class MainActivity : AppCompatActivity() {
                     continue
                 }
 
-                // SUSPECT #1: The word extraction logic
-                val extractStart = System.currentTimeMillis()
-                val lineWords = extractWordsFromLine(lineText, dao)
-                highlightsList.add(lineWords)
-                val extractDuration = System.currentTimeMillis() - extractStart
-
+                val lineWords = mutableListOf<String>()
                 val lineReadings = mutableListOf<String>()
-                val lineJishoWords = mutableListOf<JishoWord>() // Replaced lineDefinitions
+                val lineJishoWords = mutableListOf<JishoWord>()
+                var wordIndex = 0
 
-                // Use forEachIndexed so we can track the exact color index!
-                lineWords.forEachIndexed { wordIndex, phrase ->
-                    val entry = queryCache[phrase]
+                // 2. Tokenize the entire line at once
+                val tokens = tokenizer.tokenize(lineText)
+
+                tokens.forEach { token ->
+                    val surface = token.surface // The exact word as it appears in the song (e.g., "走っ")
+                    val baseForm = token.baseForm ?: surface // The dictionary form (e.g., "走る")
+                    val pos1 = token.partOfSpeechLevel1 // e.g., Noun (名詞), Particle (助詞), etc.
+
+                    // FAST FAIL 1: Skip punctuation (記号) or purely non-Japanese segments
+                    if (pos1 == "記号" || !surface.contains(jpCharacterRegex)) {
+                        lineReadings.add(surface)
+                        return@forEach // acts like 'continue' in a standard loop
+                    }
+
+                    // FAST FAIL 2: Safely skip particles (助詞) and auxiliary verbs (助動詞)
+                    if (pos1 == "助詞" || pos1 == "助動詞") {
+                        lineReadings.add(surface)
+                        return@forEach
+                    }
+
+                    // MEMORY CACHE: Query your DB using the BASE FORM, not the conjugated surface form!
+                    val entry = if (queryCache.containsKey(baseForm)) {
+                        queryCache[baseForm]
+                    } else {
+                        val dbResult = dao.getDefinition(baseForm)
+                        queryCache[baseForm] = dbResult
+                        dbResult
+                    }
+
                     if (entry != null) {
-                        val reading = entry.reading
-                        if (!reading.isNullOrBlank()) {
-                            lineReadings.add(reading)
-                        } else {
-                            lineReadings.add(phrase)
-                        }
+                        // Highlight the word exactly as it appears in the lyric text
+                        lineWords.add(surface)
+
+                        // Prefer DB reading for proper Hiragana format, fallback to Kuromoji reading (Katakana), then surface
+                        val reading = entry.reading ?: token.reading ?: surface
+                        lineReadings.add(reading)
 
                         val definitionText = entry.definition
                         if (!definitionText.isNullOrBlank()) {
-                            if (!songDictionary.containsKey(phrase)) {
+                            if (!songDictionary.containsKey(baseForm)) {
                                 val spannable = android.text.SpannableStringBuilder()
-                                val displayReading = entry.reading ?: phrase
-                                spannable.append("【 $phrase 】 ($displayReading)\n→ $definitionText\n\n")
-                                songDictionary[phrase] = spannable
+                                val displayReading = entry.reading ?: baseForm
+                                spannable.append("【 $baseForm 】 ($displayReading)\n→ $definitionText\n\n")
+                                songDictionary[baseForm] = spannable
                             }
-                            // Save the complete object for the UI and Anki
-                            songDictionary[phrase]?.let { formatted ->
+
+                            songDictionary[baseForm]?.let { formatted ->
                                 lineJishoWords.add(
                                     JishoWord(
-                                        phrase,
-                                        reading ?: phrase,
+                                        baseForm,
+                                        reading,
                                         definitionText,
                                         formatted,
                                         wordIndex
                                     )
                                 )
                             }
+                            wordIndex++
                         }
+                    } else {
+                        // Word is valid but not in your DB, just append its reading for Furigana
+                        lineReadings.add(token.reading ?: surface)
                     }
                 }
 
+                highlightsList.add(lineWords)
                 furiganaLyrics.add(lineReadings.joinToString(" • "))
 
                 if (lineJishoWords.isNotEmpty()) {
                     preparedLineSets[index] = JishoLineSet(lineText, lineJishoWords)
                 }
 
-                // Log slow lines (anything taking more than 100ms)
                 val lineTotal = System.currentTimeMillis() - lineStart
                 if (lineTotal > 100) {
-                    Log.w(
-                        "Lyrisync",
-                        "Slow line [$index] took ${lineTotal}ms (Extraction: ${extractDuration}ms)"
-                    )
+                    Log.w("Lyrisync", "Slow line [$index] took ${lineTotal}ms")
                 }
             }
 
             val totalProcessingTime = System.currentTimeMillis() - loopStart
             Log.d("Lyrisync", "Total Loop Processing: ${totalProcessingTime}ms")
-            if (lyrics.isNotEmpty()) {
-                Log.d("Lyrisync", "Average per line: ${totalProcessingTime / lyrics.size}ms")
-            }
-
-            withContext(Dispatchers.Main) {
-                val uiStart = System.currentTimeMillis()
-                lyricAdapter?.updateData(lyrics, translatedLyrics, furiganaLyrics, highlightsList)
-                Log.d("Lyrisync", "UI Update took: ${System.currentTimeMillis() - uiStart}ms")
-                Log.i(
-                    "Lyrisync", "TOTAL PREFETCH TIME: ${System.currentTimeMillis() - startTime}ms"
-                )
-            }
 
             withContext(Dispatchers.Main) {
                 val uiStart = System.currentTimeMillis()
@@ -939,10 +956,7 @@ class MainActivity : AppCompatActivity() {
                 findViewById<ProgressBar>(R.id.loadingCircle).visibility = View.GONE
 
                 Log.d("Lyrisync", "UI Update took: ${System.currentTimeMillis() - uiStart}ms")
-                Log.i(
-                    "Lyrisync",
-                    "TOTAL PREFETCH TIME: ${System.currentTimeMillis() - startTime}ms"
-                )
+                Log.i("Lyrisync", "TOTAL PREFETCH TIME: ${System.currentTimeMillis() - startTime}ms")
             }
         }
     }
