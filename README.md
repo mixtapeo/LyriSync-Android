@@ -16,6 +16,11 @@ For this reason, db is pushed to RAM to allow fast querying
 - Single page UI (activity_main.xml)
 
 ## Planned features / bugs lol:
+- start playing on searched song
+- play pause button (+ settings toggle for this)
+- add a intro page + settings entry to re show intro page
+  - add a link spotify thing
+  - step by step setup
 - add about, github and version boxes in settings
 - background using colors from album art?
 - send word to anki w time in song n all metadata
