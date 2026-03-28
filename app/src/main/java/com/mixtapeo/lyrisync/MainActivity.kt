@@ -91,26 +91,11 @@ interface TranslationService {
     ): List<Any>
 }
 
-private val lrcService: LrcLibService by lazy {
-    retrofit2.Retrofit.Builder().baseUrl("https://lrclib.net/")
-        .addConverterFactory(retrofit2.converter.gson.GsonConverterFactory.create()).build()
-        .create(LrcLibService::class.java)
-}
-private val translationService: TranslationService by lazy {
-    retrofit2.Retrofit.Builder().baseUrl("https://translate.googleapis.com/")
-        .addConverterFactory(retrofit2.converter.gson.GsonConverterFactory.create()).build()
-        .create(TranslationService::class.java)
-}
-
 @Dao
 interface JishoDao {
     @SqlQuery("SELECT * FROM dictionary WHERE kanji = :query OR reading = :query LIMIT 1")
     fun getDefinition(query: String): JishoEntry?
 }
-
-private val queryCache = mutableMapOf<String, JishoEntry?>()
-private val jpCharacterRegex = Regex("[\\u3040-\\u30ff\\u4e00-\\u9faf]")
-private val singleKanaRegex = Regex("[\\u3040-\\u30ff]")
 
 @Entity(
     tableName = "dictionary",
@@ -123,6 +108,20 @@ data class JishoEntry(
     @ColumnInfo(name = "kanji") val kanji: String?,
     @ColumnInfo(name = "reading") val reading: String?,
     @ColumnInfo(name = "meanings") val definition: String?
+)
+
+// 1. The new model to hold raw data for Anki and color syncing
+data class JishoWord(
+    val phrase: String,
+    val reading: String,
+    val meaning: String,
+    val formattedText: CharSequence,
+    val wordIndex: Int // Keeps the color synced with the lyrics!
+)
+
+// 2. Update the Big Box model to use our new word model
+data class JishoLineSet(
+    val lyricText: String, val words: List<JishoWord>
 )
 
 @Database(entities = [JishoEntry::class], version = 1, exportSchema = false)
@@ -144,19 +143,19 @@ abstract class AppDatabase : RoomDatabase() {
     }
 }
 
-// 1. The new model to hold raw data for Anki and color syncing
-data class JishoWord(
-    val phrase: String,
-    val reading: String,
-    val meaning: String,
-    val formattedText: CharSequence,
-    val wordIndex: Int // Keeps the color synced with the lyrics!
-)
-
-// 2. Update the Big Box model to use our new word model
-data class JishoLineSet(
-    val lyricText: String, val words: List<JishoWord>
-)
+private val lrcService: LrcLibService by lazy {
+    retrofit2.Retrofit.Builder().baseUrl("https://lrclib.net/")
+        .addConverterFactory(retrofit2.converter.gson.GsonConverterFactory.create()).build()
+        .create(LrcLibService::class.java)
+}
+private val translationService: TranslationService by lazy {
+    retrofit2.Retrofit.Builder().baseUrl("https://translate.googleapis.com/")
+        .addConverterFactory(retrofit2.converter.gson.GsonConverterFactory.create()).build()
+        .create(TranslationService::class.java)
+}
+private val queryCache = mutableMapOf<String, JishoEntry?>()
+private val jpCharacterRegex = Regex("[\\u3040-\\u30ff\\u4e00-\\u9faf]")
+private val singleKanaRegex = Regex("[\\u3040-\\u30ff]")
 
 class MainActivity : AppCompatActivity() {
     private var translatedLyrics = listOf<String>()
@@ -172,279 +171,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var jishoAdapter: JishoHistoryAdapter
     private val preparedLineSets = mutableMapOf<Int, JishoLineSet>()
     private val viewModel: LyriSyncViewModel by viewModels()
-
-    private fun extractWordsFromLine(text: String, dao: JishoDao): List<String> {
-        val foundWords = mutableListOf<String>()
-        var i = 0
-        val maxWordLength = 10
-
-        while (i < text.length) {
-            var matchFound = false
-            val currentMax = minOf(text.length - i, maxWordLength)
-
-            for (len in currentMax downTo 1) {
-                val substring = text.substring(i, i + len)
-
-                // FAST FAIL 1: If it's just English or punctuation, skip the DB completely
-                if (!substring.contains(jpCharacterRegex)) {
-                    continue
-                }
-
-                // FAST FAIL 2: Skip single-character Kana particles using the hoisted Regex
-                if (len == 1 && substring.matches(singleKanaRegex)) {
-                    continue
-                }
-
-                // MEMORY CACHE: Don't query SQLite for the same word twice
-                val entry = if (queryCache.containsKey(substring)) {
-                    queryCache[substring]
-                } else {
-                    val dbResult = dao.getDefinition(substring)
-                    queryCache[substring] = dbResult // Save it for next time!
-                    dbResult
-                }
-
-                if (entry != null) {
-                    foundWords.add(substring)
-                    i += len
-                    matchFound = true
-                    break
-                }
-            }
-
-            if (!matchFound) {
-                i++
-            }
-        }
-        return foundWords
-    }
-
-    @SuppressLint("NotifyDataSetChanged")
-    private fun prefetchSongDictionary(lyrics: List<LyricLine>) {
-        val startTime = System.currentTimeMillis()
-        Log.d("Lyrisync", "Prefetch started for ${lyrics.size} lines")
-
-        runOnUiThread {
-            jishoHistory.clear()
-            jishoAdapter.notifyDataSetChanged()
-        }
-
-        lifecycleScope.launch(Dispatchers.IO) {
-            val dbLoadStart = System.currentTimeMillis()
-            val db = AppDatabase.getDatabase(this@MainActivity)
-            val dao = db.jishoDao()
-            Log.d("Lyrisync", "DB/DAO Init took: ${System.currentTimeMillis() - dbLoadStart}ms")
-
-            val furiganaLyrics = mutableListOf<String>()
-            val highlightsList = mutableListOf<List<String>>()
-
-            preparedLineSets.clear()
-            songDictionary.clear()
-            queryCache.clear()
-
-            val loopStart = System.currentTimeMillis()
-
-            for ((index, line) in lyrics.withIndex()) {
-                val lineStart = System.currentTimeMillis()
-                val lineText = line.text
-
-                if (lineText.isBlank()) {
-                    highlightsList.add(emptyList())
-                    furiganaLyrics.add("")
-                    continue
-                }
-
-                // SUSPECT #1: The word extraction logic
-                val extractStart = System.currentTimeMillis()
-                val lineWords = extractWordsFromLine(lineText, dao)
-                highlightsList.add(lineWords)
-                val extractDuration = System.currentTimeMillis() - extractStart
-
-                val lineReadings = mutableListOf<String>()
-                val lineJishoWords = mutableListOf<JishoWord>() // Replaced lineDefinitions
-
-                // Use forEachIndexed so we can track the exact color index!
-                lineWords.forEachIndexed { wordIndex, phrase ->
-                    val entry = queryCache[phrase]
-                    if (entry != null) {
-                        val reading = entry.reading
-                        if (!reading.isNullOrBlank()) {
-                            lineReadings.add(reading)
-                        } else {
-                            lineReadings.add(phrase)
-                        }
-
-                        val definitionText = entry.definition
-                        if (!definitionText.isNullOrBlank()) {
-                            if (!songDictionary.containsKey(phrase)) {
-                                val spannable = android.text.SpannableStringBuilder()
-                                val displayReading = entry.reading ?: phrase
-                                spannable.append("【 $phrase 】 ($displayReading)\n→ $definitionText\n\n")
-                                songDictionary[phrase] = spannable
-                            }
-                            // Save the complete object for the UI and Anki
-                            songDictionary[phrase]?.let { formatted ->
-                                lineJishoWords.add(
-                                    JishoWord(
-                                        phrase,
-                                        reading ?: phrase,
-                                        definitionText,
-                                        formatted,
-                                        wordIndex
-                                    )
-                                )
-                            }
-                        }
-                    }
-                }
-
-                furiganaLyrics.add(lineReadings.joinToString(" • "))
-
-                if (lineJishoWords.isNotEmpty()) {
-                    preparedLineSets[index] = JishoLineSet(lineText, lineJishoWords)
-                }
-
-                // Log slow lines (anything taking more than 100ms)
-                val lineTotal = System.currentTimeMillis() - lineStart
-                if (lineTotal > 100) {
-                    Log.w(
-                        "Lyrisync",
-                        "Slow line [$index] took ${lineTotal}ms (Extraction: ${extractDuration}ms)"
-                    )
-                }
-            }
-
-            val totalProcessingTime = System.currentTimeMillis() - loopStart
-            Log.d("Lyrisync", "Total Loop Processing: ${totalProcessingTime}ms")
-            if (lyrics.isNotEmpty()) {
-                Log.d("Lyrisync", "Average per line: ${totalProcessingTime / lyrics.size}ms")
-            }
-
-            withContext(Dispatchers.Main) {
-                val uiStart = System.currentTimeMillis()
-                lyricAdapter?.updateData(lyrics, translatedLyrics, furiganaLyrics, highlightsList)
-                Log.d("Lyrisync", "UI Update took: ${System.currentTimeMillis() - uiStart}ms")
-                Log.i(
-                    "Lyrisync", "TOTAL PREFETCH TIME: ${System.currentTimeMillis() - startTime}ms"
-                )
-            }
-
-            withContext(Dispatchers.Main) {
-                val uiStart = System.currentTimeMillis()
-                lyricAdapter?.updateData(lyrics, translatedLyrics, furiganaLyrics, highlightsList)
-
-                // HIDE THE SPINNER HERE
-                findViewById<ProgressBar>(R.id.loadingCircle).visibility = View.GONE
-
-                Log.d("Lyrisync", "UI Update took: ${System.currentTimeMillis() - uiStart}ms")
-                Log.i(
-                    "Lyrisync",
-                    "TOTAL PREFETCH TIME: ${System.currentTimeMillis() - startTime}ms"
-                )
-            }
-        }
-    }
-
-    private fun displayPreparedLine(lineIndex: Int) {
-        val preparedBox = preparedLineSets[lineIndex]
-
-        if (preparedBox != null) {
-            Log.d("Lyrisync-Debug", "displayPreparedLine: Found box for index $lineIndex")
-            jishoHistory.add(0, preparedBox)
-
-            runOnUiThread {
-                jishoAdapter.notifyItemInserted(0)
-                if (isSyncEnabled) {
-                    val jishoRv = findViewById<RecyclerView>(R.id.jishoRecyclerView)
-                    jishoRv.scrollToPosition(0)
-                }
-            }
-        } else {
-            Log.d(
-                "Lyrisync-Debug",
-                "displayPreparedLine: NO DATA for index $lineIndex. (Blank line or still loading)"
-            )
-        }
-    }
-
-    private fun loadManualSearchResult(selectedMatch: LrcResponse) {
-        findViewById<ProgressBar>(R.id.loadingCircle).visibility = View.VISIBLE
-        viewModel.setSource(LyricSource.MANUAL) // Switch to Manual
-        // 1. Close Search Drawer and go back to Home Screen
-        val bottomNavigationView =
-            findViewById<com.google.android.material.bottomnavigation.BottomNavigationView>(R.id.bottomNavigation)
-        bottomNavigationView.selectedItemId = R.id.nav_home
-
-        // 2. Force Sync Toggle to OFF (Manual Mode)
-        val syncBtn = findViewById<ToggleButton>(R.id.syncToggleButton)
-        // UI Updates
-        syncBtn.isChecked = false
-        syncBtn.backgroundTintList = ColorStateList.valueOf(Color.GRAY)
-
-        // 3. Update the Top Bar Metadata
-        runOnUiThread {
-            findViewById<TextView>(R.id.songTitleText).text = selectedMatch.name
-            findViewById<TextView>(R.id.artistNameText).text = selectedMatch.artistName
-            findViewById<TextView>(R.id.NoLyricsText).visibility = View.GONE
-        }
-
-        // 4. Process the Lyrics just like the normal flow!
-        lifecycleScope.launch(Dispatchers.IO) {
-            try {
-                // Handle both synced LRC and plain text lyrics
-                val rawLyrics = selectedMatch.syncedLyrics ?: selectedMatch.plainLyrics ?: ""
-                parsedLyrics = if (selectedMatch.syncedLyrics != null) {
-                    parseLrc(rawLyrics)
-                } else {
-                    // If it's plain text, generate dummy timestamps so the UI still displays them
-                    rawLyrics.split("\n").mapIndexed { index, text ->
-                        LyricLine(index.toLong(), text.trim())
-                    }.filter { it.text.isNotBlank() }
-                }
-
-                // Call Google Translate
-                val fullJapaneseText = parsedLyrics.joinToString("\n") { it.text }
-                if (fullJapaneseText.isNotBlank()) {
-                    val translationResponse =
-                        translationService.getTranslation(q = fullJapaneseText)
-                    val bulkResult = extractTextFromGoogle(translationResponse)
-                    translatedLyrics = bulkResult.split("\n")
-                } else {
-                    translatedLyrics = emptyList()
-                }
-
-                // Send to Database for Furigana and Underlines
-                prefetchSongDictionary(parsedLyrics)
-
-                withContext(Dispatchers.Main) {
-                    // Update UI while we wait for the database
-                    lyricAdapter?.updateData(
-                        parsedLyrics, translatedLyrics, emptyList(), emptyList()
-                    )
-                    activeIndex = -1 // Reset the active highlight
-                }
-            } catch (e: Exception) {
-                Log.e("Lyrisync", "Manual fetch failed: ${e.message}", e)
-            }
-        }
-    }
-
-    private fun focusLine(index: Int) {
-        val currentSource = viewModel.source.value
-
-        if (currentSource == LyricSource.SPOTIFY) {
-            // OPTIONAL: Just scroll to it, but DON'T seek Spotify
-            // or simply return and do nothing to prevent accidental jumps
-            return
-        }
-
-        // MANUAL MODE LOGIC
-        activeIndex = index
-        viewModel.updateActiveIndex(index)
-
-        // We explicitly DO NOT call spotifyAppRemote?.playerApi?.seekTo(targetMs) here
-        // because we are in Manual mode.
-    }
+    private var reconnectTry = 0
+    private val maxRetries = 3
+    private var connectionMonitorJob: Job? = null
+    private var isConnecting = false
+    private var currentTrackUri: String? = null
+    private var activeIndex = -1
 
     @SuppressLint("SetTextI18n", "NotifyDataSetChanged")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -744,9 +476,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private var reconnectTry = 0
-    private val maxRetries = 3
-
     override fun onStart() {
         super.onStart()
         val sharedPrefs = getSharedPreferences("LyriSyncPrefs", Context.MODE_PRIVATE)
@@ -758,6 +487,104 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onStop() {
+        super.onStop()
+        connectionMonitorJob?.cancel() // Stop checking when app is hidden
+        spotifyAppRemote?.let {
+            SpotifyAppRemote.disconnect(it)
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val sharedPrefs = getSharedPreferences("LyriSyncPrefs", MODE_PRIVATE)
+        val wipeRequested = sharedPrefs.getBoolean("WIPE_REQUESTED", false)
+        if (wipeRequested) {
+            jishoHistory.clear()
+            jishoAdapter?.notifyDataSetChanged()
+            sharedPrefs.edit().putBoolean("WIPE_REQUESTED", false).apply()
+        }
+
+        val refreshLyricsRequested = sharedPrefs.getBoolean("REFRESH_LYRICS_REQUESTED", false)
+        if (refreshLyricsRequested) {
+            findViewById<RecyclerView>(R.id.lyricRecyclerView).adapter?.notifyDataSetChanged()
+            sharedPrefs.edit { putBoolean("REFRESH_LYRICS_REQUESTED", false) }
+        }
+    }
+
+    // <------- core funcs ------->
+
+    private fun reconnectToSpotify(forceAuthView: Boolean = false) {
+        if (isConnecting) return
+        isConnecting = true
+
+        val connectionParams = ConnectionParams.Builder(clientId)
+            .setRedirectUri(redirectUri)
+            .showAuthView(forceAuthView) // <--- Now it's dynamic!
+            .build()
+
+        SpotifyAppRemote.connect(this, connectionParams, object : Connector.ConnectionListener {
+            override fun onConnected(appRemote: SpotifyAppRemote) {
+                isConnecting = false
+                reconnectTry = 0
+                spotifyAppRemote = appRemote
+                connected()
+            }
+
+            override fun onFailure(throwable: Throwable) {
+                isConnecting = false
+
+                val rootCause = throwable.cause
+                if (throwable is RemoteClientException || rootCause is RemoteClientException) {
+                    // Silent auth failed. Ask the user to click the button to authorize.
+                    runOnUiThread { showSpotifyAuthDialog() }
+                } else if (throwable is SpotifyConnectionTerminatedException && reconnectTry < maxRetries) {
+                    reconnectTry++
+                    mainHandler.postDelayed({ reconnectToSpotify(forceAuthView) }, 1000)
+                } else {
+                    Log.e("Lyrisync", "Connection failed: ${throwable.message}")
+                    runOnUiThread {
+                        findViewById<TextView>(R.id.songTitleText)?.text =
+                            "Connection Failed: ${throwable.message}"
+                    }
+                }
+            }
+        })
+    }
+
+    private fun startSyncLoop() {
+        syncJob = lifecycleScope.launch {
+            while (isActive) {
+                spotifyAppRemote?.playerApi?.playerState?.setResultCallback { playerState ->
+                    runOnUiThread {
+                        syncLyricsToPosition(playerState.playbackPosition)
+                    }
+                }
+                delay(32)
+            }
+        }
+    }
+
+    private fun connected() {
+        spotifyAppRemote?.playerApi?.subscribeToPlayerState()?.setEventCallback { playerState ->
+            val track = playerState.track
+            if (track != null) {
+                if (track.uri != currentTrackUri) {
+                    currentTrackUri = track.uri
+                    activeIndex = -1
+                    findViewById<TextView>(R.id.songTitleText).text = track.name
+                    findViewById<TextView>(R.id.artistNameText).text = track.artist.name
+                    fetchLyrics(track.name, track.artist.name)
+                }
+
+                if (syncJob == null || !syncJob!!.isActive) {
+                    startSyncLoop()
+                }
+            }
+        }
+    }
+
+    // <------- support funcs ------->
     // Setup Coil ImageLoader with GIF support
     private fun showFirstStartDialog(prefs: android.content.SharedPreferences) {
         val overlay = findViewById<View>(R.id.onboardingOverlay)
@@ -835,102 +662,6 @@ class MainActivity : AppCompatActivity() {
 
         btnAuthNever.setOnClickListener {
             overlay.visibility = View.GONE
-        }
-    }
-
-    private var connectionMonitorJob: Job? = null
-    private var isConnecting = false
-
-    private fun reconnectToSpotify(forceAuthView: Boolean = false) {
-        if (isConnecting) return
-        isConnecting = true
-
-        val connectionParams = ConnectionParams.Builder(clientId)
-            .setRedirectUri(redirectUri)
-            .showAuthView(forceAuthView) // <--- Now it's dynamic!
-            .build()
-
-        SpotifyAppRemote.connect(this, connectionParams, object : Connector.ConnectionListener {
-            override fun onConnected(appRemote: SpotifyAppRemote) {
-                isConnecting = false
-                reconnectTry = 0
-                spotifyAppRemote = appRemote
-                connected()
-            }
-
-            override fun onFailure(throwable: Throwable) {
-                isConnecting = false
-
-                val rootCause = throwable.cause
-                if (throwable is RemoteClientException || rootCause is RemoteClientException) {
-                    // Silent auth failed. Ask the user to click the button to authorize.
-                    runOnUiThread { showSpotifyAuthDialog() }
-                } else if (throwable is SpotifyConnectionTerminatedException && reconnectTry < maxRetries) {
-                    reconnectTry++
-                    mainHandler.postDelayed({ reconnectToSpotify(forceAuthView) }, 1000)
-                } else {
-                    Log.e("Lyrisync", "Connection failed: ${throwable.message}")
-                    runOnUiThread {
-                        findViewById<TextView>(R.id.songTitleText)?.text = "Connection Failed: ${throwable.message}"
-                    }
-                }
-            }
-        })
-    }
-
-    private fun forceSpotifyToForegroundAndConnect() {
-        val spotifyPackage = "com.spotify.music"
-        val intent = packageManager.getLaunchIntentForPackage(spotifyPackage)
-
-        if (intent != null) {
-            // 1. Crucial: Clear flags and force a fresh task to bring it to front
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
-            startActivity(intent)
-
-            // 2. Give the user/OS 1.5 - 2 seconds to transition focus
-            mainHandler.postDelayed({
-                // 3. Now try to connect; the OS sees Spotify is "active"
-                // and will allow the Auth Activity to launch.
-                reconnectToSpotify()
-            }, 2000)
-        } else {
-            Toast.makeText(this, "Please open Spotify manually first", Toast.LENGTH_LONG).show()
-        }
-    }
-
-    private var currentTrackUri: String? = null
-
-    private fun connected() {
-        spotifyAppRemote?.playerApi?.subscribeToPlayerState()?.setEventCallback { playerState ->
-            val track = playerState.track
-            if (track != null) {
-                if (track.uri != currentTrackUri) {
-                    currentTrackUri = track.uri
-                    activeIndex = -1
-                    findViewById<TextView>(R.id.songTitleText).text = track.name
-                    findViewById<TextView>(R.id.artistNameText).text = track.artist.name
-                    fetchLyrics(track.name, track.artist.name)
-                }
-
-                if (syncJob == null || !syncJob!!.isActive) {
-                    startSyncLoop()
-                }
-            }
-        }
-    }
-
-    private var activeIndex = -1
-
-    private fun startSyncLoop() {
-        syncJob = lifecycleScope.launch {
-            while (isActive) {
-                spotifyAppRemote?.playerApi?.playerState?.setResultCallback { playerState ->
-                    runOnUiThread {
-                        syncLyricsToPosition(playerState.playbackPosition)
-                    }
-                }
-                delay(32)
-            }
         }
     }
 
@@ -1024,51 +755,320 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    override fun onStop() {
-        super.onStop()
-        connectionMonitorJob?.cancel() // Stop checking when app is hidden
-        spotifyAppRemote?.let {
-            SpotifyAppRemote.disconnect(it)
+    private fun forceSpotifyToForegroundAndConnect() {
+        val spotifyPackage = "com.spotify.music"
+        val intent = packageManager.getLaunchIntentForPackage(spotifyPackage)
+
+        if (intent != null) {
+            // 1. Crucial: Clear flags and force a fresh task to bring it to front
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+            startActivity(intent)
+
+            // 2. Give the user/OS 1.5 - 2 seconds to transition focus
+            mainHandler.postDelayed({
+                // 3. Now try to connect; the OS sees Spotify is "active"
+                // and will allow the Auth Activity to launch.
+                reconnectToSpotify()
+            }, 2000)
+        } else {
+            Toast.makeText(this, "Please open Spotify manually first", Toast.LENGTH_LONG).show()
         }
     }
 
-    override fun onResume() {
-        super.onResume()
-        val sharedPrefs = getSharedPreferences("LyriSyncPrefs", MODE_PRIVATE)
-        val wipeRequested = sharedPrefs.getBoolean("WIPE_REQUESTED", false)
-        if (wipeRequested) {
+    private fun extractWordsFromLine(text: String, dao: JishoDao): List<String> {
+        val foundWords = mutableListOf<String>()
+        var i = 0
+        val maxWordLength = 10
+
+        while (i < text.length) {
+            var matchFound = false
+            val currentMax = minOf(text.length - i, maxWordLength)
+
+            for (len in currentMax downTo 1) {
+                val substring = text.substring(i, i + len)
+
+                // FAST FAIL 1: If it's just English or punctuation, skip the DB completely
+                if (!substring.contains(jpCharacterRegex)) {
+                    continue
+                }
+
+                // FAST FAIL 2: Skip single-character Kana particles using the hoisted Regex
+                if (len == 1 && substring.matches(singleKanaRegex)) {
+                    continue
+                }
+
+                // MEMORY CACHE: Don't query SQLite for the same word twice
+                val entry = if (queryCache.containsKey(substring)) {
+                    queryCache[substring]
+                } else {
+                    val dbResult = dao.getDefinition(substring)
+                    queryCache[substring] = dbResult // Save it for next time!
+                    dbResult
+                }
+
+                if (entry != null) {
+                    foundWords.add(substring)
+                    i += len
+                    matchFound = true
+                    break
+                }
+            }
+
+            if (!matchFound) {
+                i++
+            }
+        }
+        return foundWords
+    }
+
+    @SuppressLint("NotifyDataSetChanged")
+    private fun prefetchSongDictionary(lyrics: List<LyricLine>) {
+        val startTime = System.currentTimeMillis()
+        Log.d("Lyrisync", "Prefetch started for ${lyrics.size} lines")
+
+        runOnUiThread {
             jishoHistory.clear()
-            jishoAdapter?.notifyDataSetChanged()
-            sharedPrefs.edit().putBoolean("WIPE_REQUESTED", false).apply()
+            jishoAdapter.notifyDataSetChanged()
         }
 
-        val refreshLyricsRequested = sharedPrefs.getBoolean("REFRESH_LYRICS_REQUESTED", false)
-        if (refreshLyricsRequested) {
-            findViewById<RecyclerView>(R.id.lyricRecyclerView).adapter?.notifyDataSetChanged()
-            sharedPrefs.edit { putBoolean("REFRESH_LYRICS_REQUESTED", false) }
+        lifecycleScope.launch(Dispatchers.IO) {
+            val dbLoadStart = System.currentTimeMillis()
+            val db = AppDatabase.getDatabase(this@MainActivity)
+            val dao = db.jishoDao()
+            Log.d("Lyrisync", "DB/DAO Init took: ${System.currentTimeMillis() - dbLoadStart}ms")
+
+            val furiganaLyrics = mutableListOf<String>()
+            val highlightsList = mutableListOf<List<String>>()
+
+            preparedLineSets.clear()
+            songDictionary.clear()
+            queryCache.clear()
+
+            val loopStart = System.currentTimeMillis()
+
+            for ((index, line) in lyrics.withIndex()) {
+                val lineStart = System.currentTimeMillis()
+                val lineText = line.text
+
+                if (lineText.isBlank()) {
+                    highlightsList.add(emptyList())
+                    furiganaLyrics.add("")
+                    continue
+                }
+
+                // SUSPECT #1: The word extraction logic
+                val extractStart = System.currentTimeMillis()
+                val lineWords = extractWordsFromLine(lineText, dao)
+                highlightsList.add(lineWords)
+                val extractDuration = System.currentTimeMillis() - extractStart
+
+                val lineReadings = mutableListOf<String>()
+                val lineJishoWords = mutableListOf<JishoWord>() // Replaced lineDefinitions
+
+                // Use forEachIndexed so we can track the exact color index!
+                lineWords.forEachIndexed { wordIndex, phrase ->
+                    val entry = queryCache[phrase]
+                    if (entry != null) {
+                        val reading = entry.reading
+                        if (!reading.isNullOrBlank()) {
+                            lineReadings.add(reading)
+                        } else {
+                            lineReadings.add(phrase)
+                        }
+
+                        val definitionText = entry.definition
+                        if (!definitionText.isNullOrBlank()) {
+                            if (!songDictionary.containsKey(phrase)) {
+                                val spannable = android.text.SpannableStringBuilder()
+                                val displayReading = entry.reading ?: phrase
+                                spannable.append("【 $phrase 】 ($displayReading)\n→ $definitionText\n\n")
+                                songDictionary[phrase] = spannable
+                            }
+                            // Save the complete object for the UI and Anki
+                            songDictionary[phrase]?.let { formatted ->
+                                lineJishoWords.add(
+                                    JishoWord(
+                                        phrase,
+                                        reading ?: phrase,
+                                        definitionText,
+                                        formatted,
+                                        wordIndex
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+
+                furiganaLyrics.add(lineReadings.joinToString(" • "))
+
+                if (lineJishoWords.isNotEmpty()) {
+                    preparedLineSets[index] = JishoLineSet(lineText, lineJishoWords)
+                }
+
+                // Log slow lines (anything taking more than 100ms)
+                val lineTotal = System.currentTimeMillis() - lineStart
+                if (lineTotal > 100) {
+                    Log.w(
+                        "Lyrisync",
+                        "Slow line [$index] took ${lineTotal}ms (Extraction: ${extractDuration}ms)"
+                    )
+                }
+            }
+
+            val totalProcessingTime = System.currentTimeMillis() - loopStart
+            Log.d("Lyrisync", "Total Loop Processing: ${totalProcessingTime}ms")
+            if (lyrics.isNotEmpty()) {
+                Log.d("Lyrisync", "Average per line: ${totalProcessingTime / lyrics.size}ms")
+            }
+
+            withContext(Dispatchers.Main) {
+                val uiStart = System.currentTimeMillis()
+                lyricAdapter?.updateData(lyrics, translatedLyrics, furiganaLyrics, highlightsList)
+                Log.d("Lyrisync", "UI Update took: ${System.currentTimeMillis() - uiStart}ms")
+                Log.i(
+                    "Lyrisync", "TOTAL PREFETCH TIME: ${System.currentTimeMillis() - startTime}ms"
+                )
+            }
+
+            withContext(Dispatchers.Main) {
+                val uiStart = System.currentTimeMillis()
+                lyricAdapter?.updateData(lyrics, translatedLyrics, furiganaLyrics, highlightsList)
+
+                // HIDE THE SPINNER HERE
+                findViewById<ProgressBar>(R.id.loadingCircle).visibility = View.GONE
+
+                Log.d("Lyrisync", "UI Update took: ${System.currentTimeMillis() - uiStart}ms")
+                Log.i(
+                    "Lyrisync",
+                    "TOTAL PREFETCH TIME: ${System.currentTimeMillis() - startTime}ms"
+                )
+            }
         }
+    }
+
+    private fun displayPreparedLine(lineIndex: Int) {
+        val preparedBox = preparedLineSets[lineIndex]
+
+        if (preparedBox != null) {
+            Log.d("Lyrisync-Debug", "displayPreparedLine: Found box for index $lineIndex")
+            jishoHistory.add(0, preparedBox)
+
+            runOnUiThread {
+                jishoAdapter.notifyItemInserted(0)
+                if (isSyncEnabled) {
+                    val jishoRv = findViewById<RecyclerView>(R.id.jishoRecyclerView)
+                    jishoRv.scrollToPosition(0)
+                }
+            }
+        } else {
+            Log.d(
+                "Lyrisync-Debug",
+                "displayPreparedLine: NO DATA for index $lineIndex. (Blank line or still loading)"
+            )
+        }
+    }
+
+    private fun loadManualSearchResult(selectedMatch: LrcResponse) {
+        findViewById<ProgressBar>(R.id.loadingCircle).visibility = View.VISIBLE
+        viewModel.setSource(LyricSource.MANUAL) // Switch to Manual
+        // 1. Close Search Drawer and go back to Home Screen
+        val bottomNavigationView =
+            findViewById<com.google.android.material.bottomnavigation.BottomNavigationView>(R.id.bottomNavigation)
+        bottomNavigationView.selectedItemId = R.id.nav_home
+
+        // 2. Force Sync Toggle to OFF (Manual Mode)
+        val syncBtn = findViewById<ToggleButton>(R.id.syncToggleButton)
+        // UI Updates
+        syncBtn.isChecked = false
+        syncBtn.backgroundTintList = ColorStateList.valueOf(Color.GRAY)
+
+        // 3. Update the Top Bar Metadata
+        runOnUiThread {
+            findViewById<TextView>(R.id.songTitleText).text = selectedMatch.name
+            findViewById<TextView>(R.id.artistNameText).text = selectedMatch.artistName
+            findViewById<TextView>(R.id.NoLyricsText).visibility = View.GONE
+        }
+
+        // 4. Process the Lyrics just like the normal flow!
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                // Handle both synced LRC and plain text lyrics
+                val rawLyrics = selectedMatch.syncedLyrics ?: selectedMatch.plainLyrics ?: ""
+                parsedLyrics = if (selectedMatch.syncedLyrics != null) {
+                    parseLrc(rawLyrics)
+                } else {
+                    // If it's plain text, generate dummy timestamps so the UI still displays them
+                    rawLyrics.split("\n").mapIndexed { index, text ->
+                        LyricLine(index.toLong(), text.trim())
+                    }.filter { it.text.isNotBlank() }
+                }
+
+                // Call Google Translate
+                val fullJapaneseText = parsedLyrics.joinToString("\n") { it.text }
+                if (fullJapaneseText.isNotBlank()) {
+                    val translationResponse =
+                        translationService.getTranslation(q = fullJapaneseText)
+                    val bulkResult = extractTextFromGoogle(translationResponse)
+                    translatedLyrics = bulkResult.split("\n")
+                } else {
+                    translatedLyrics = emptyList()
+                }
+
+                // Send to Database for Furigana and Underlines
+                prefetchSongDictionary(parsedLyrics)
+
+                withContext(Dispatchers.Main) {
+                    // Update UI while we wait for the database
+                    lyricAdapter?.updateData(
+                        parsedLyrics, translatedLyrics, emptyList(), emptyList()
+                    )
+                    activeIndex = -1 // Reset the active highlight
+                }
+            } catch (e: Exception) {
+                Log.e("Lyrisync", "Manual fetch failed: ${e.message}", e)
+            }
+        }
+    }
+
+    private fun focusLine(index: Int) {
+        val currentSource = viewModel.source.value
+
+        if (currentSource == LyricSource.SPOTIFY) {
+            // OPTIONAL: Just scroll to it, but DON'T seek Spotify
+            // or simply return and do nothing to prevent accidental jumps
+            return
+        }
+
+        // MANUAL MODE LOGIC
+        activeIndex = index
+        viewModel.updateActiveIndex(index)
+
+        // We explicitly DO NOT call spotifyAppRemote?.playerApi?.seekTo(targetMs) here
+        // because we are in Manual mode.
+    }
+
+    fun parseLrc(lrcContent: String): List<LyricLine> {
+        val lyricList = mutableListOf<LyricLine>()
+        val lines = lrcContent.split("\n")
+        val regex = Regex("\\[(\\d{2}):(\\d{2})\\.(\\d{2})](.*)")
+
+        for (line in lines) {
+            val match = regex.find(line)
+            if (match != null) {
+                val min = match.groupValues[1].toLong()
+                val sec = match.groupValues[2].toLong()
+                val ms = match.groupValues[3].toLong() * 10
+                val text = match.groupValues[4].trim()
+
+                val totalMs = (min * 60 * 1000) + (sec * 1000) + ms
+                lyricList.add(LyricLine(totalMs, text))
+            }
+        }
+        return lyricList.sortedBy { it.timeMs }
     }
 }
 
-fun parseLrc(lrcContent: String): List<LyricLine> {
-    val lyricList = mutableListOf<LyricLine>()
-    val lines = lrcContent.split("\n")
-    val regex = Regex("\\[(\\d{2}):(\\d{2})\\.(\\d{2})](.*)")
-
-    for (line in lines) {
-        val match = regex.find(line)
-        if (match != null) {
-            val min = match.groupValues[1].toLong()
-            val sec = match.groupValues[2].toLong()
-            val ms = match.groupValues[3].toLong() * 10
-            val text = match.groupValues[4].trim()
-
-            val totalMs = (min * 60 * 1000) + (sec * 1000) + ms
-            lyricList.add(LyricLine(totalMs, text))
-        }
-    }
-    return lyricList.sortedBy { it.timeMs }
-}
 
 class JishoHistoryAdapter(private val history: List<JishoLineSet>) :
     RecyclerView.Adapter<JishoHistoryAdapter.ViewHolder>() {
