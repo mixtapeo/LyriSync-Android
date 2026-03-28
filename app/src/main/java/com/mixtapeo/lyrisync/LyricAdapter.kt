@@ -20,20 +20,24 @@ class LyricAdapter(
     var activeIndex: Int = -1
 
     fun updateData(
-        newLyrics: List<LyricLine>,
-        newTranslations: List<String>,
-        newFurigana: List<String>,
-        newHighlights: List<List<String>>
+        newLyrics: List<LyricLine>?, // Make these nullable for safety
+        newTranslations: List<String>?,
+        newFurigana: List<String>?,
+        newHighlights: List<List<String>>?
     ) {
-        Log.d(
-            "Lyrisync-Debug",
-            "LyricAdapter updateData: Lyrics(${newLyrics.size}), Furigana(${newFurigana.size}), Highlights(${newHighlights.size})"
-        )
-        this.lyrics = newLyrics
-        this.translations = newTranslations
-        this.furiganaList = newFurigana
-        this.highlightedWords = newHighlights
+        // 1. Clear the active index so the "highlight" doesn't ghost onto the next song
+        this.activeIndex = -1
+
+        // 2. Assign new data or empty lists if null
+        this.lyrics = newLyrics ?: emptyList()
+        this.translations = newTranslations ?: emptyList()
+        this.furiganaList = newFurigana ?: emptyList()
+        this.highlightedWords = newHighlights ?: emptyList()
+
+        // 3. Force a full refresh
         notifyDataSetChanged()
+
+        Log.d("Lyrisync", "Data Reset. New size: ${this.lyrics.size}")
     }
 
     class LyricViewHolder(view: View) : RecyclerView.ViewHolder(view) {
