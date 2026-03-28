@@ -325,6 +325,16 @@
                     app:icon="@drawable/ic_github"
                     app:iconPadding="8dp"
                     app:iconTint="#E0E0E0" />
+<!--                version -->
+                <TextView
+                    android:id="@+id/version"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="sans-serif-medium"
+                    android:paddingHorizontal="16dp"
+                    android:textAllCaps="true"
+                    android:textColor="@color/gray"
+                    android:textSize="12sp" />
 
             </LinearLayout>
         </ScrollView>

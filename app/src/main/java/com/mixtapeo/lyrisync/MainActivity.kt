@@ -211,6 +211,8 @@ class MainActivity : AppCompatActivity() {
         val radioGroupSubtitle = findViewById<RadioGroup>(R.id.spinnerSubtitleMode)
         val btnClearHistory = findViewById<Button>(R.id.wipeHistoryButton)
         val sharedPrefs = getSharedPreferences("LyriSyncPrefs", MODE_PRIVATE)
+        val version = packageManager.getPackageInfo(packageName, 0).versionName
+        findViewById<TextView>(R.id.version).text = version
 
         // --- Setup Subtitle Radio Logic ---
         val idToIndex = mapOf(
@@ -1024,7 +1026,7 @@ class MainActivity : AppCompatActivity() {
     fun parseLrc(lrcContent: String): List<LyricLine> {
         val lyricList = mutableListOf<LyricLine>()
         val lines = lrcContent.split("\n")
-        val regex = Regex("\\[(\\d{2}):(\\d{2})\\.(\\d{2})](.*)")
+        val regex = Regex("\\[(\\d{2}):(\\d{2})\\.(\\d{2,3})](.*)")
 
         for (line in lines) {
             val match = regex.find(line)
@@ -1033,12 +1035,47 @@ class MainActivity : AppCompatActivity() {
                 val sec = match.groupValues[2].toLong()
                 val ms = match.groupValues[3].toLong() * 10
                 val text = match.groupValues[4].trim()
-
                 val totalMs = (min * 60 * 1000) + (sec * 1000) + ms
-                lyricList.add(LyricLine(totalMs, text))
+
+                // leave emptys out. We can bundle all emptys later
+                if (text.isNotEmpty()) {
+                    lyricList.add(LyricLine(totalMs, text))
+                }
             }
         }
-        return lyricList.sortedBy { it.timeMs }
+
+        // Sort first so we can calculate gaps reliably
+        val sortedLyrics = lyricList.sortedBy { it.timeMs }.toMutableList()
+        val finalLyrics = mutableListOf<LyricLine>()
+
+        // 1. Check for an intro gap BEFORE the loop
+        if (sortedLyrics.isNotEmpty()) {
+            val firstLyricTime = sortedLyrics[0].timeMs
+            if (firstLyricTime > 2500) { // If intro is longer than 2.5s
+                finalLyrics.add(LyricLine(0, "..."))
+            }
+        }
+
+        // 2. Then run your loop as usual
+        for (i in 0 until sortedLyrics.size) {
+            val currentLyric = sortedLyrics[i]
+            finalLyrics.add(currentLyric) // 1. Add the actual lyric
+
+            if (i < sortedLyrics.size - 1) {
+                val nextStart = sortedLyrics[i + 1].timeMs
+                val currentStart = currentLyric.timeMs
+                val gap = nextStart - currentStart
+
+                // If gap is > 5 seconds
+                if (gap > 5000) {
+                    // 2. Add dots 2 seconds AFTER the current lyric started
+                    // This gives the user time to actually read the current lyric
+                    finalLyrics.add(LyricLine(currentStart + 2000, "..."))
+                }
+            }
+        }
+        Log.d("Lyrisync", "Parsed Lyrics: $finalLyrics")
+        return finalLyrics
     }
 }
 
