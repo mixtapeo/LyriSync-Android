@@ -753,8 +753,8 @@ class MainActivity : AppCompatActivity() {
         val isFirstRun = sharedPrefs.getBoolean("IS_FIRST_RUN", true)
 
         if (!isFirstRun) {
-            reconnectToSpotify() // Only auto-connect if it's NOT the first time
-            startSpotifyConnectionMonitor() // Start the 1-second checker
+            // Try to connect silently first. Do NOT force the auth view yet.
+            reconnectToSpotify(forceAuthView = false)
         }
     }
 
@@ -803,132 +803,99 @@ class MainActivity : AppCompatActivity() {
 
         overlay.visibility = View.VISIBLE
 
-        // 1. Create a specialized Loader for animations
         val animationLoader = coil.ImageLoader.Builder(this)
             .components {
-                if (android.os.Build.VERSION.SDK_INT >= 28) {
-                    add(coil.decode.ImageDecoderDecoder.Factory())
-                } else {
-                    add(coil.decode.GifDecoder.Factory())
-                }
-            }
-            .build()
+                if (Build.VERSION.SDK_INT >= 28) add(coil.decode.ImageDecoderDecoder.Factory())
+                else add(coil.decode.GifDecoder.Factory())
+            }.build()
 
-        // 2. Load using that specific loader
         videoAuth.load(R.raw.gif1, animationLoader)
 
         btnAuthOk.setOnClickListener {
-            // 1. Hide the overlay and save the state so they don't see this again
             overlay.visibility = View.GONE
 
-            // 2. Prepare the intent to launch Spotify
+            // Use the correct Android package name for Spotify!
             val spotifyPackage = "com.spotify.music"
             val launchIntent = packageManager.getLaunchIntentForPackage(spotifyPackage)
 
             if (launchIntent != null) {
-                // Spotify IS installed.
-                // We add flags to ensure it launches as a new task, bringing it to the front
-                launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                // Bring Spotify to the front so the OS doesn't block it
+                launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
                 startActivity(launchIntent)
 
-                // Give Spotify a moment to "wake up" its IPC services before we aggressively try to connect.
-                // A 1.5 second delay usually masks the context-switch nicely.
+                // Wait 2 seconds for Spotify to open, then connect WITH the Auth View forced ON
                 mainHandler.postDelayed({
-                    reconnectToSpotify()
-                }, 1500)
+                    reconnectToSpotify(forceAuthView = true)
+                }, 2000)
 
             } else {
-                // Spotify is NOT installed.
                 Toast.makeText(this, "Spotify not installed.", Toast.LENGTH_LONG).show()
-
-                // Fallback: Bounce them to the Google Play Store
-                try {
-                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$spotifyPackage")))
-                } catch (e: android.content.ActivityNotFoundException) {
-                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=$spotifyPackage")))
-                }
             }
         }
 
         btnAuthNever.setOnClickListener {
             overlay.visibility = View.GONE
-            reconnectToSpotify()
         }
     }
 
     private var connectionMonitorJob: Job? = null
-
-    private fun startSpotifyConnectionMonitor() {
-        connectionMonitorJob?.cancel() // Reset if already running
-        connectionMonitorJob = lifecycleScope.launch {
-            while (isActive) {
-                val isConnected = spotifyAppRemote?.isConnected ?: false
-
-                if (!isConnected) {
-                    Log.w("Lyrisync", "Spotify disconnected. Attempting background reconnect...")
-                    // Optional: Update UI to show "Connecting..."
-                    reconnectToSpotify()
-                }
-
-                // Wait 1 second before checking again
-                delay(1000)
-            }
-        }
-    }
-
     private var isConnecting = false
 
-    private fun reconnectToSpotify() {
+    private fun reconnectToSpotify(forceAuthView: Boolean = false) {
         if (isConnecting) return
         isConnecting = true
 
         val connectionParams = ConnectionParams.Builder(clientId)
             .setRedirectUri(redirectUri)
-            .showAuthView(false) // Set to false for background auto-reconnects
+            .showAuthView(forceAuthView) // <--- Now it's dynamic!
             .build()
 
         SpotifyAppRemote.connect(this, connectionParams, object : Connector.ConnectionListener {
             override fun onConnected(appRemote: SpotifyAppRemote) {
                 isConnecting = false
+                reconnectTry = 0
                 spotifyAppRemote = appRemote
                 connected()
             }
 
             override fun onFailure(throwable: Throwable) {
                 isConnecting = false
-                // Extract the root cause of the error
+
                 val rootCause = throwable.cause
-
-                when {
-                    // 1. Check if the error OR its wrapped cause is the RemoteClientException
-                    throwable is RemoteClientException || rootCause is RemoteClientException -> {
-                        Log.e("Lyrisync", "Spotify connection failed (Auth needed)", throwable)
-                        runOnUiThread {
-                            showSpotifyAuthDialog()
-                        }
-                    }
-
-                    // 2. Handle terminated connections with retry logic
-                    throwable is SpotifyConnectionTerminatedException && reconnectTry < maxRetries -> {
-                        reconnectTry++
-                        Log.w("Lyrisync", "Connection terminated. Retry attempt $reconnectTry/$maxRetries...")
-
-                        mainHandler.postDelayed({
-                            reconnectToSpotify()
-                        }, 1000)
-                    }
-
-                    // 3. Fallback for everything else
-                    else -> {
-                        Log.e("Lyrisync", "Cannot connect: ${throwable.message}", throwable)
-                        runOnUiThread {
-                            findViewById<TextView>(R.id.songTitleText)?.text =
-                                "Connection Failed: ${throwable.message}. Make sure Spotify is running (open in the background)."
-                        }
+                if (throwable is RemoteClientException || rootCause is RemoteClientException) {
+                    // Silent auth failed. Ask the user to click the button to authorize.
+                    runOnUiThread { showSpotifyAuthDialog() }
+                } else if (throwable is SpotifyConnectionTerminatedException && reconnectTry < maxRetries) {
+                    reconnectTry++
+                    mainHandler.postDelayed({ reconnectToSpotify(forceAuthView) }, 1000)
+                } else {
+                    Log.e("Lyrisync", "Connection failed: ${throwable.message}")
+                    runOnUiThread {
+                        findViewById<TextView>(R.id.songTitleText)?.text = "Connection Failed: ${throwable.message}"
                     }
                 }
             }
         })
+    }
+
+    private fun forceSpotifyToForegroundAndConnect() {
+        val spotifyPackage = "com.spotify.music"
+        val intent = packageManager.getLaunchIntentForPackage(spotifyPackage)
+
+        if (intent != null) {
+            // 1. Crucial: Clear flags and force a fresh task to bring it to front
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+            startActivity(intent)
+
+            // 2. Give the user/OS 1.5 - 2 seconds to transition focus
+            mainHandler.postDelayed({
+                // 3. Now try to connect; the OS sees Spotify is "active"
+                // and will allow the Auth Activity to launch.
+                reconnectToSpotify()
+            }, 2000)
+        } else {
+            Toast.makeText(this, "Please open Spotify manually first", Toast.LENGTH_LONG).show()
+        }
     }
 
     private var currentTrackUri: String? = null

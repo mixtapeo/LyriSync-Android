@@ -17,6 +17,8 @@ cardview = "1.0.0"
 room = "2.6.1"
 retrofit = "2.11.0"
 material = "1.13.0"
+volley = "1.2.1"
+coil = "2.7.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -45,6 +47,9 @@ room-compiler = { group = "androidx.room", name = "room-compiler", version.ref =
 retrofit = { group = "com.squareup.retrofit2", name = "retrofit", version.ref = "retrofit" }
 retrofit-gson = { group = "com.squareup.retrofit2", name = "converter-gson", version.ref = "retrofit" }
 material = { group = "com.google.android.material", name = "material", version.ref = "material" }
+volley = { group = "com.android.volley", name = "volley", version.ref = "volley" }
+coil = { group = "io.coil-kt", name = "coil", version.ref = "coil" }
+coil-gif = { group = "io.coil-kt", name = "coil-gif", version.ref = "coil" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
