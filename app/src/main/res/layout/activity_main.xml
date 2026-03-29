@@ -121,6 +121,13 @@
                         android:textSize="16sp"
                         android:textStyle="bold" />
 
+                    <ToggleButton
+                        android:id="@+id/playPause"
+                        android:layout_width="40dp"
+                        android:layout_height="match_parent"
+                        android:checked="true"
+                        android:textOff="Manual" />
+
                     <FrameLayout
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"

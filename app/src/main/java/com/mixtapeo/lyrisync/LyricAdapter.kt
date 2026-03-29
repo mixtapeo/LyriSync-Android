@@ -50,13 +50,16 @@ class LyricAdapter(
         val view = LayoutInflater.from(parent.context).inflate(R.layout.item_lyric, parent, false)
         return LyricViewHolder(view)
     }
+    private val jpCharacterRegex = Regex("[\\u3040-\\u30ff\\u4e00-\\u9faf]")
 
     override fun onBindViewHolder(holder: LyricViewHolder, position: Int) {
-        holder.jp.text = lyrics[position].text
+        val lyricText = lyrics[position].text
+        val hasJapanese = lyricText.contains(jpCharacterRegex)
+        holder.jp.text = lyricText
         holder.en.text = translations.getOrNull(position) ?: ""
 
-        val furiganaText = furiganaList.getOrNull(position) ?: ""
-        holder.furigana?.text = furiganaText
+        val furiganaContent = furiganaList.getOrNull(position) ?: ""
+        holder.furigana?.text = furiganaContent
 
 
         if (position == activeIndex) {
@@ -113,27 +116,24 @@ class LyricAdapter(
             }
         }
 
-        val sharedPrefs =
-            holder.itemView.context.getSharedPreferences("LyriSyncPrefs", Context.MODE_PRIVATE)
+        val sharedPrefs = holder.itemView.context.getSharedPreferences("LyriSyncPrefs", Context.MODE_PRIVATE)
         val subtitleMode = sharedPrefs.getInt("SUBTITLE_MODE", 2)
 
         when (subtitleMode) {
-            0 -> {
+            0 -> { // None
                 holder.furigana?.visibility = View.GONE
                 holder.en.visibility = View.GONE
             }
-
-            1 -> {
-                holder.furigana?.visibility = View.VISIBLE
+            1 -> { // Furigana Only
+                // Only show if there is actually Japanese to show furigana for
+                holder.furigana?.visibility = if (hasJapanese) View.VISIBLE else View.GONE
                 holder.en.visibility = View.GONE
             }
-
-            2 -> {
-                holder.furigana?.visibility = View.VISIBLE
+            2 -> { // Both
+                holder.furigana?.visibility = if (hasJapanese) View.VISIBLE else View.GONE
                 holder.en.visibility = View.VISIBLE
             }
-
-            3 -> {
+            3 -> { // English Only
                 holder.furigana?.visibility = View.GONE
                 holder.en.visibility = View.VISIBLE
             }
@@ -142,6 +142,14 @@ class LyricAdapter(
         holder.jp.text = spannable
 
         // 2. Fire the callback when the user taps anywhere on this lyric row!
+        if (position == activeIndex) {
+            holder.jp.setTextColor("#1DB954".toColorInt())
+            holder.jp.alpha = 1.0f
+        } else {
+            holder.jp.setTextColor(android.graphics.Color.WHITE)
+            holder.jp.alpha = 0.5f
+        }
+
         holder.itemView.setOnClickListener {
             onLineClick(position)
         }

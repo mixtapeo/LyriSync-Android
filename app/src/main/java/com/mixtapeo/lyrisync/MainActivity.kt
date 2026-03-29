@@ -268,6 +268,9 @@ class MainActivity : AppCompatActivity() {
         jishoRv.adapter = jishoAdapter
         jishoRv.layoutManager = androidx.recyclerview.widget.LinearLayoutManager(this)
 
+        // setup text size buttons
+//        val textSizeSlider = findViewById<com.google.android.material.slider.Slider>(R.id.slider)
+
         // --- SETUP DEFINITION LIMIT SLIDER ---
         val defSlider = findViewById<com.google.android.material.slider.Slider>(R.id.slider)
 
@@ -710,8 +713,9 @@ class MainActivity : AppCompatActivity() {
                             val bulkResult = extractTextFromGoogle(translationResponse)
                             translatedLyrics = bulkResult.split("\n")
                         } else {
-                            // 2. It's an English song, so "translated" is just the original
-                            translatedLyrics = parsedLyrics.map { it.text }
+                            Log.d("Lyrisync", "No kanji found, skipping translation")
+                            // 2. It's an English song, so set empty
+                            translatedLyrics = parsedLyrics.map { "" }
                         }
                         prefetchSongDictionary(parsedLyrics)
 
