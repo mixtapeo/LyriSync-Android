@@ -1037,11 +1037,14 @@ class MainActivity : AppCompatActivity() {
             if (match != null) {
                 val min = match.groupValues[1].toLong()
                 val sec = match.groupValues[2].toLong()
-                val ms = match.groupValues[3].toLong() * 10
+
+                val msString = match.groupValues[3]
+                var ms = msString.toLong()
+                if (msString.length == 2) ms *= 10
+
                 val text = match.groupValues[4].trim()
                 val totalMs = (min * 60 * 1000) + (sec * 1000) + ms
 
-                // leave emptys out. We can bundle all emptys later
                 if (text.isNotEmpty()) {
                     lyricList.add(LyricLine(totalMs, text))
                 }
@@ -1056,7 +1059,7 @@ class MainActivity : AppCompatActivity() {
         if (sortedLyrics.isNotEmpty()) {
             val firstLyricTime = sortedLyrics[0].timeMs
             if (firstLyricTime > 2500) { // If intro is longer than 2.5s
-                finalLyrics.add(LyricLine(0, "..."))
+                finalLyrics.add(LyricLine(1, "..."))
             }
         }
 
@@ -1072,9 +1075,7 @@ class MainActivity : AppCompatActivity() {
 
                 // If gap is > 5 seconds
                 if (gap > 5000) {
-                    // 2. Add dots 2 seconds AFTER the current lyric started
-                    // This gives the user time to actually read the current lyric
-                    finalLyrics.add(LyricLine(currentStart + 2000, "..."))
+                    finalLyrics.add(LyricLine(nextStart-5000, "..."))
                 }
             }
         }
