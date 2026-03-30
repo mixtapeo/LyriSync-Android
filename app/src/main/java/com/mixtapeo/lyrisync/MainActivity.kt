@@ -282,7 +282,7 @@ class MainActivity : AppCompatActivity() {
             findViewById<com.google.android.material.slider.Slider>(R.id.textSizeSlider)
 
         // Load saved text sizes
-        val savedTextSize = sharedPrefs.getFloat("TEXT_SIZE", 22f)
+        val savedTextSize = sharedPrefs.getFloat("TEXT_SIZE", 16f)
 
         // Initialize Sliders
         textSizeSlider.value = savedTextSize
@@ -517,7 +517,7 @@ class MainActivity : AppCompatActivity() {
 
         if (!isFirstRun) {
             // Try to connect silently first. Do NOT force the auth view yet.
-            reconnectToSpotify(forceAuthView = false)
+            reconnectToSpotify(forceAuthView = true)
         }
     }
 
