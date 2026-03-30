@@ -39,6 +39,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import coil.load
 import com.atilika.kuromoji.ipadic.Tokenizer
+import com.google.android.material.materialswitch.MaterialSwitch
 import com.spotify.android.appremote.api.ConnectionParams
 import com.spotify.android.appremote.api.Connector
 import com.spotify.android.appremote.api.SpotifyAppRemote
@@ -182,35 +183,44 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-        // remove status and navbar of android (fullscreen app)
+
+        // 1. DECLARE ONCE AT THE TOP
+        val sharedPrefs = getSharedPreferences("LyriSyncPrefs", MODE_PRIVATE)
+        val controller = WindowCompat.getInsetsController(window, window.decorView)
+
+        // 2. SYSTEM NAVIGATION LOGIC
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            // Make app draw edge-to-edge
-            // WindowCompat.setDecorFitsSystemWindows(window, false)
+            val systemNavSwitch = findViewById<MaterialSwitch>(R.id.switchSystemNav)
 
-            // Get controller
-            val controller = WindowCompat.getInsetsController(window, window.decorView)
+            // Load saved state
+            val isNavHidden = sharedPrefs.getBoolean("HIDE_SYSTEM_NAV", true)
+            systemNavSwitch.isChecked = isNavHidden
 
-            // Optional: allow swipe to temporarily show bars
-            controller.systemBarsBehavior =
-                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            if (isNavHidden) {
+                controller.hide(WindowInsetsCompat.Type.systemBars())
+                controller.systemBarsBehavior =
+                    WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            }
 
-            // Hide status + navigation bars (fullscreen)
-            controller.hide(WindowInsetsCompat.Type.statusBars())
-            controller.hide(WindowInsetsCompat.Type.navigationBars())
+            systemNavSwitch.setOnCheckedChangeListener { _, isChecked ->
+                sharedPrefs.edit { putBoolean("HIDE_SYSTEM_NAV", isChecked) }
+                if (isChecked) {
+                    controller.hide(WindowInsetsCompat.Type.systemBars())
+                } else {
+                    controller.show(WindowInsetsCompat.Type.systemBars())
+                }
+            }
         } else {
             @Suppress("DEPRECATION")
-            window.decorView.systemUiVisibility =
-                View.SYSTEM_UI_FLAG_FULLSCREEN
+            window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_FULLSCREEN
         }
 
-        findViewById<TextView>(R.id.songTitleText)?.text = "Waiting for Spotify..."
-        Log.d("Lyrisync", "onCreate finished")
-
-        // setup settings views
+        // 3. SETTINGS & OTHER UI (Remove the 'val' from the sharedPrefs lines below)
+        // Just use 'sharedPrefs' directly now.
         val radioGroupSubtitle = findViewById<RadioGroup>(R.id.spinnerSubtitleMode)
-        val btnClearHistory = findViewById<Button>(R.id.wipeHistoryButton)
-        val sharedPrefs = getSharedPreferences("LyriSyncPrefs", MODE_PRIVATE)
         val version = packageManager.getPackageInfo(packageName, 0).versionName
+        findViewById<TextView>(R.id.version).text = version
+        val btnClearHistory = findViewById<Button>(R.id.wipeHistoryButton)
         findViewById<TextView>(R.id.version).text = version
 
         // --- Setup Subtitle Radio Logic ---
@@ -268,7 +278,8 @@ class MainActivity : AppCompatActivity() {
         jishoRv.layoutManager = androidx.recyclerview.widget.LinearLayoutManager(this)
 
         // setup text size buttons
-        val textSizeSlider = findViewById<com.google.android.material.slider.Slider>(R.id.textSizeSlider)
+        val textSizeSlider =
+            findViewById<com.google.android.material.slider.Slider>(R.id.textSizeSlider)
 
         // Load saved text sizes
         val savedTextSize = sharedPrefs.getFloat("TEXT_SIZE", 22f)

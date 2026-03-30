@@ -16,6 +16,7 @@ For this reason, db is pushed to RAM to allow fast querying
 - Single page UI (activity_main.xml)
 
 ## Planned features / bugs lol:
+- add an alert when lost connection w spotify (10 min timeout from spot)
 - start playing on searched song
 - play pause button (+ settings toggle for this)
 - add a intro page + settings entry to re show intro page
