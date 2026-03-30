@@ -156,7 +156,6 @@ private val translationService: TranslationService by lazy {
 }
 private val queryCache = mutableMapOf<String, JishoEntry?>()
 private val jpCharacterRegex = Regex("[\\u3040-\\u30ff\\u4e00-\\u9faf]")
-private val singleKanaRegex = Regex("[\\u3040-\\u30ff]")
 
 class MainActivity : AppCompatActivity() {
     private var translatedLyrics = listOf<String>()
@@ -269,7 +268,25 @@ class MainActivity : AppCompatActivity() {
         jishoRv.layoutManager = androidx.recyclerview.widget.LinearLayoutManager(this)
 
         // setup text size buttons
-//        val textSizeSlider = findViewById<com.google.android.material.slider.Slider>(R.id.slider)
+        val textSizeSlider = findViewById<com.google.android.material.slider.Slider>(R.id.textSizeSlider)
+
+        // Load saved text sizes
+        val savedTextSize = sharedPrefs.getFloat("TEXT_SIZE", 22f)
+
+        // Initialize Sliders
+        textSizeSlider.value = savedTextSize
+
+        // Initialize Adapter
+        lyricAdapter?.textSize = savedTextSize
+
+        // Listeners for sliders
+        val previewLyric = findViewById<TextView>(R.id.previewLyric)
+
+        textSizeSlider.addOnChangeListener { _, value, _ ->
+            // Map 1-7 to something like 12sp - 32sp
+            val newSize = 12f + (value * 3f)
+            previewLyric.textSize = newSize
+        }
 
         // --- SETUP DEFINITION LIMIT SLIDER ---
         val defSlider = findViewById<com.google.android.material.slider.Slider>(R.id.slider)
@@ -780,6 +797,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     @SuppressLint("NotifyDataSetChanged")
+    /*
+    * Uses lexicological analyzer (kuromoji) to segement words -> underlines and coloring, furigana and translation fetch, and issue UI update
+    * */
     private fun prefetchSongDictionary(lyrics: List<LyricLine>) {
         val startTime = System.currentTimeMillis()
         Log.d("Lyrisync", "Prefetch started for ${lyrics.size} lines")
@@ -817,7 +837,8 @@ class MainActivity : AppCompatActivity() {
                 val lineStart = System.currentTimeMillis()
                 val lineText = line.text
 
-                if (lineText.isBlank()) {
+                // exceptions to skip processing
+                if (lineText == "..." || lineText.isBlank()) {
                     highlightsList.add(emptyList())
                     furiganaLyrics.add("")
                     continue
@@ -1059,7 +1080,7 @@ class MainActivity : AppCompatActivity() {
         if (sortedLyrics.isNotEmpty()) {
             val firstLyricTime = sortedLyrics[0].timeMs
             if (firstLyricTime > 2500) { // If intro is longer than 2.5s
-                finalLyrics.add(LyricLine(1, "..."))
+                finalLyrics.add(LyricLine(1, " "))
             }
         }
 
@@ -1074,9 +1095,10 @@ class MainActivity : AppCompatActivity() {
                 val gap = nextStart - currentStart
 
                 // If gap is > 5 seconds
-                if (gap > 5000) {
-                    finalLyrics.add(LyricLine(nextStart-5000, "..."))
+                if (gap > 10000) {
+                    finalLyrics.add(LyricLine(nextStart, " "))
                 }
+                Log.d("Lyrisync", "Gap between lines: $gap at $currentLyric")
             }
         }
         Log.d("Lyrisync", "Parsed Lyrics: $finalLyrics")

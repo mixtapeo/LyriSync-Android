@@ -2,6 +2,7 @@ package com.mixtapeo.lyrisync
 
 import android.content.Context
 import android.util.Log
+import android.util.TypedValue
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -18,6 +19,9 @@ class LyricAdapter(
 ) : RecyclerView.Adapter<LyricAdapter.LyricViewHolder>() {
 
     var activeIndex: Int = -1
+    var textSize: Float = 22f
+    var furiganaSize: Float = 12f
+    var translationSize: Float = 16f
 
     fun updateData(
         newLyrics: List<LyricLine>?, // Make these nullable for safety
@@ -55,12 +59,32 @@ class LyricAdapter(
     override fun onBindViewHolder(holder: LyricViewHolder, position: Int) {
         val lyricText = lyrics[position].text
         val hasJapanese = lyricText.contains(jpCharacterRegex)
+        val isGap = lyricText == "..."
         holder.jp.text = lyricText
         holder.en.text = translations.getOrNull(position) ?: ""
 
         val furiganaContent = furiganaList.getOrNull(position) ?: ""
         holder.furigana?.text = furiganaContent
 
+        // Apply text sizes in SP
+        holder.jp.setTextSize(TypedValue.COMPLEX_UNIT_SP, textSize)
+        holder.furigana?.setTextSize(TypedValue.COMPLEX_UNIT_SP, furiganaSize)
+        holder.en.setTextSize(TypedValue.COMPLEX_UNIT_SP, translationSize)
+
+
+        if (isGap) {
+            holder.en.text = ""
+            holder.en.visibility = View.GONE
+            holder.furigana?.visibility = View.GONE
+            holder.jp.alpha = 0.3f // Optional: dim the dots
+        } else {
+            // 3. Normal translation logic
+            val translation = translations.getOrNull(position) ?: ""
+            holder.en.text = translation
+
+            // Ensure visibility follows your existing SubtitleMode logic below
+            holder.jp.alpha = if (position == activeIndex) 1.0f else 0.5f
+        }
 
         if (position == activeIndex) {
             // Active State: Spotify Green, fully opaque

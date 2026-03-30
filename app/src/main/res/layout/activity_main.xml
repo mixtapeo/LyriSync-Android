@@ -292,6 +292,69 @@
                         app:thumbColor="@color/brand_primary"
                         app:trackColorInactive="#33FFFFFF" />
 
+                    <com.google.android.material.card.MaterialCardView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="16dp"
+                        app:cardBackgroundColor="#1AFFFFFF"
+                        app:cardCornerRadius="12dp"
+                        app:strokeWidth="0dp">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical"
+                            android:padding="16dp"
+                            android:gravity="center">
+
+                            <TextView
+                                android:id="@+id/previewFurigana"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="かんじ"
+                                android:textColor="@color/gray"
+                                android:textSize="12sp" />
+
+                            <TextView
+                                android:id="@+id/previewLyric"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="漢字"
+                                android:textColor="@android:color/white"
+                                android:textSize="24sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:id="@+id/previewTranslation"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="4dp"
+                                android:text="Text Preview"
+                                android:textColor="@color/gray"
+                                android:textSize="14sp" />
+                        </LinearLayout>
+                    </com.google.android.material.card.MaterialCardView>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="16dp"
+                        android:text="Text size (Lyric)"
+                        android:textColor="@color/gray"
+                        android:textSize="16sp" />
+
+                    <com.google.android.material.slider.Slider
+                        android:id="@+id/textSizeSlider"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:stepSize="4"
+                        android:value="4"
+                        android:valueFrom="4"
+                        android:valueTo="48"
+                        app:thumbColor="@color/brand_primary"
+                        app:trackColorInactive="#33FFFFFF" />
+
+
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/wipeHistoryButton"
                         style="@style/Widget.Material3.Button.TonalButton"
@@ -332,7 +395,7 @@
                     app:icon="@drawable/ic_github"
                     app:iconPadding="8dp"
                     app:iconTint="#E0E0E0" />
-<!--                version -->
+                <!--                version -->
                 <TextView
                     android:id="@+id/version"
                     android:layout_width="match_parent"
@@ -484,6 +547,7 @@
                 android:textColor="@color/brand_secondary" />
         </LinearLayout>
     </FrameLayout>
+
     <FrameLayout
         android:id="@+id/SpotifyAuthRequest"
         android:layout_width="match_parent"
@@ -555,10 +619,10 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="24dp"
-                android:textSize="8dp"
                 android:paddingTop="24dp"
                 android:text='If you repeatedly get this error and have spotify installed, try unrestricting battery for spotify. Else please raise an issue on github.com/mixtapeo/LyriSyncAndroid'
                 android:textColor="@color/gray"
+                android:textSize="8dp"
                 android:textStyle="italic" />
         </LinearLayout>
     </FrameLayout>

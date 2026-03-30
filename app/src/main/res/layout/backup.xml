@@ -5,158 +5,65 @@
     android:layout_height="match_parent"
     android:background="#121212">
 
-    <LinearLayout
+    <com.google.android.material.card.MaterialCardView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:paddingBottom="40dp">
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:fontFamily="sans-serif-medium"
-            android:paddingHorizontal="16dp"
-            android:paddingTop="24dp"
-            android:paddingBottom="8dp"
-            android:text="View Settings"
-            android:textAllCaps="true"
-            android:textColor="@color/brand_primary"
-            android:textSize="12sp" />
+        android:layout_marginTop="16dp"
+        app:cardBackgroundColor="#1AFFFFFF"
+        app:cardCornerRadius="12dp"
+        app:strokeWidth="0dp">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:paddingHorizontal="16dp">
+            android:padding="16dp"
+            android:gravity="center">
 
             <TextView
+                android:id="@+id/previewFurigana"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Subtitle Display Mode"
-                android:textColor="#FFFFFF"
-                android:textSize="16sp" />
-
-            <RadioGroup
-                android:id="@+id/spinnerSubtitleMode"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp">
-
-                <RadioButton
-                    android:id="@+id/radioNone"
-                    android:layout_width="match_parent"
-                    android:layout_height="48dp"
-                    android:buttonTint="@color/brand_primary"
-                    android:text="None"
-                    android:textColor="#E0E0E0" />
-
-                <RadioButton
-                    android:id="@+id/radioFurigana"
-                    android:layout_width="match_parent"
-                    android:layout_height="48dp"
-                    android:buttonTint="@color/brand_primary"
-                    android:text="Furigana Only"
-                    android:textColor="#E0E0E0" />
-
-                <RadioButton
-                    android:id="@+id/radioBoth"
-                    android:layout_width="match_parent"
-                    android:layout_height="48dp"
-                    android:buttonTint="@color/brand_primary"
-                    android:text="Furigana + English"
-                    android:textColor="#E0E0E0" />
-                <RadioButton
-                    android:id="@+id/radioEnglish"
-                    android:layout_width="match_parent"
-                    android:layout_height="48dp"
-                    android:buttonTint="@color/brand_primary"
-                    android:text="English Only"
-                    android:textColor="#E0E0E0" />
-            </RadioGroup>
-        </LinearLayout>
-
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:layout_marginVertical="16dp"
-            android:background="#222222" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:fontFamily="sans-serif-medium"
-            android:paddingHorizontal="16dp"
-            android:paddingBottom="8dp"
-            android:text="Customization"
-            android:textAllCaps="true"
-            android:textColor="@color/brand_primary"
-            android:textSize="12sp" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:paddingHorizontal="16dp">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:text="Definitions per kanji"
+                android:text="かんじ"
                 android:textColor="@color/gray"
-                android:textSize="16sp" />
+                android:textSize="12sp" />
 
-            <com.google.android.material.slider.Slider
-                android:id="@+id/slider"
-                android:layout_width="match_parent"
+            <TextView
+                android:id="@+id/previewLyric"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:stepSize="1"
-                android:valueFrom="1"
-                android:valueTo="7"
-                app:thumbColor="@color/brand_primary"
-                app:trackColorInactive="#33FFFFFF"
-                />
+                android:text="漢字"
+                android:textColor="@android:color/white"
+                android:textSize="24sp"
+                android:textStyle="bold" />
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/wipeHistoryButton"
-                style="@style/Widget.Material3.Button.TonalButton"
-                android:layout_width="match_parent"
+            <TextView
+                android:id="@+id/previewTranslation"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginVertical="8dp"
-                android:text="Clear Dictionary History"
-                android:textColor="#E57373"
-                app:backgroundTint="#33E57373" />
+                android:layout_marginTop="4dp"
+                android:text="Chinese Characters"
+                android:textColor="@color/gray"
+                android:textSize="14sp" />
         </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
 
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:layout_marginVertical="16dp"
-            android:background="#222222" />
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:text="Text size (Lyric)"
+        android:textColor="@color/gray"
+        android:textSize="16sp" />
 
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:fontFamily="sans-serif-medium"
-            android:paddingHorizontal="16dp"
-            android:paddingBottom="0dp"
-            android:text="About"
-            android:textAllCaps="true"
-            android:textColor="@color/brand_primary"
-            android:textSize="12sp" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnGithub"
-            style="@style/Widget.Material3.Button.TextButton"
-            android:layout_width="match_parent"
-            android:layout_height="64dp"
-            android:gravity="start|center_vertical"
-            android:paddingHorizontal="16dp"
-            android:text="mixtapeo"
-            android:textColor="@color/gray"
-            app:icon="@drawable/ic_github"
-            app:iconPadding="8dp"
-            app:iconTint="#E0E0E0" />
-
-    </LinearLayout>
+    <com.google.android.material.slider.Slider
+        android:id="@+id/textSizeSlider"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:stepSize="1"
+        android:value="4"
+        android:valueFrom="1"
+        android:valueTo="7"
+        app:thumbColor="@color/brand_primary"
+        app:trackColorInactive="#33FFFFFF" />
 </androidx.core.widget.NestedScrollView>
