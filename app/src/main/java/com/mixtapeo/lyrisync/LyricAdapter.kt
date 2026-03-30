@@ -72,20 +72,6 @@ class LyricAdapter(
         holder.en.setTextSize(TypedValue.COMPLEX_UNIT_SP, translationSize)
 
 
-        if (isGap) {
-            holder.en.text = ""
-            holder.en.visibility = View.GONE
-            holder.furigana?.visibility = View.GONE
-            holder.jp.alpha = 0.3f // Optional: dim the dots
-        } else {
-            // 3. Normal translation logic
-            val translation = translations.getOrNull(position) ?: ""
-            holder.en.text = translation
-
-            // Ensure visibility follows your existing SubtitleMode logic below
-            holder.jp.alpha = if (position == activeIndex) 1.0f else 0.5f
-        }
-
         if (position == activeIndex) {
             // Active State: Spotify Green, fully opaque
             holder.jp.setTextColor("#1DB954".toColorInt())
