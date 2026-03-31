@@ -17,6 +17,9 @@ For this reason, db is pushed to RAM to allow fast querying
 
 ## Planned features / bugs lol:
 - add an alert when lost connection w spotify (10 min timeout from spot)
+- [bug] i think the empty space gets the translation of previouis line, fix pls.
+- finish pause button
+- multi lang support?
 - start playing on searched song
 - play pause button (+ settings toggle for this)
 - add a intro page + settings entry to re show intro page

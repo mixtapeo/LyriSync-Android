@@ -313,7 +313,7 @@
                                 android:layout_height="wrap_content"
                                 android:text="かんじ"
                                 android:textColor="@color/gray"
-                                android:textSize="12sp" />
+                                android:textSize="18sp" />
 
                             <TextView
                                 android:id="@+id/previewLyric"
@@ -331,7 +331,7 @@
                                 android:layout_marginTop="4dp"
                                 android:text="Text Preview"
                                 android:textColor="@color/gray"
-                                android:textSize="14sp" />
+                                android:textSize="17sp" />
                         </LinearLayout>
                     </com.google.android.material.card.MaterialCardView>
 
@@ -349,8 +349,8 @@
                         android:layout_height="wrap_content"
                         android:stepSize="4"
                         android:value="4"
-                        android:valueFrom="4"
-                        android:valueTo="48"
+                        android:valueFrom="0"
+                        android:valueTo="32"
                         app:thumbColor="@color/brand_primary"
                         app:trackColorInactive="#33FFFFFF" />
 

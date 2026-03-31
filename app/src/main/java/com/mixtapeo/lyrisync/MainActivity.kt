@@ -11,6 +11,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.util.TypedValue
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -294,9 +295,23 @@ class MainActivity : AppCompatActivity() {
         val previewLyric = findViewById<TextView>(R.id.previewLyric)
 
         textSizeSlider.addOnChangeListener { _, value, _ ->
-            // Map 1-7 to something like 12sp - 32sp
-            val newSize = 12f + (value * 3f)
-            previewLyric.textSize = newSize
+            // 1. Calculate the base size
+            val baseSize = 18f + value // value 0..32 results in 18sp..50sp
+
+            // 2. Define consistent ratios (adjust these to your liking)
+            val furiganaSize = baseSize * 0.5f
+            val translationSize = baseSize * 0.65f
+
+            // 3. Update the Preview Cards (to show the user what's happening)
+            previewLyric.setTextSize(TypedValue.COMPLEX_UNIT_SP, baseSize)
+
+            // 4. Update the actual RecyclerView Adapter
+            lyricAdapter.apply {
+                this?.textSize = baseSize
+                this?.furiganaSize = furiganaSize
+                this?.translationSize = translationSize
+                this!!.notifyDataSetChanged()
+            }
         }
 
         // --- SETUP DEFINITION LIMIT SLIDER ---

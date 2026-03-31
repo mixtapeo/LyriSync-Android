@@ -45,6 +45,7 @@ class LyricAdapter(
     }
 
     class LyricViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+        private var textSize: Float = 24f
         val jp: TextView = view.findViewById(R.id.itemJp)
         val en: TextView = view.findViewById(R.id.itemEn)
         val furigana: TextView? = view.findViewById(R.id.itemFurigana)
@@ -55,6 +56,12 @@ class LyricAdapter(
         return LyricViewHolder(view)
     }
     private val jpCharacterRegex = Regex("[\\u3040-\\u30ff\\u4e00-\\u9faf]")
+
+    fun updateTextSize(newSize: Float) {
+        this.textSize = newSize
+        // Notify the adapter to re-bind visible items with the new size
+        notifyDataSetChanged()
+    }
 
     override fun onBindViewHolder(holder: LyricViewHolder, position: Int) {
         val lyricText = lyrics[position].text
