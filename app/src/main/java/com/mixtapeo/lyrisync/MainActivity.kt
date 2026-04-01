@@ -370,6 +370,19 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        // play pause button
+        val btnPlayPause = findViewById<android.widget.ImageButton>(R.id.playPause)
+
+        btnPlayPause.setOnClickListener {
+            spotifyAppRemote?.playerApi?.playerState?.setResultCallback { playerState ->
+                if (playerState.isPaused) {
+                    spotifyAppRemote?.playerApi?.resume()
+                } else {
+                    spotifyAppRemote?.playerApi?.pause()
+                }
+            }
+        }
+
         // --- 2. SETUP SYNC TOGGLE & ANIMATION ---
         val fabReSync = findViewById<com.google.android.material.floatingactionbutton.FloatingActionButton>(R.id.fabReSync)
         val syncBtn = findViewById<ToggleButton>(R.id.syncToggleButton)
@@ -669,6 +682,15 @@ class MainActivity : AppCompatActivity() {
     private fun connected() {
         spotifyAppRemote?.playerApi?.subscribeToPlayerState()?.setEventCallback { playerState ->
             val track = playerState.track
+
+            // play pause button logic
+            val btnPlayPause = findViewById<android.widget.ImageButton>(R.id.playPause)
+            if (playerState.isPaused) {
+                btnPlayPause.setImageResource(android.R.drawable.ic_media_play)
+            } else {
+                btnPlayPause.setImageResource(android.R.drawable.ic_media_pause)
+            }
+
             if (track != null) {
                 if (track.uri != currentTrackUri) {
                     currentTrackUri = track.uri

@@ -134,12 +134,16 @@
                         android:textSize="16sp"
                         android:textStyle="bold" />
 
-                    <ToggleButton
+                    <ImageButton
                         android:id="@+id/playPause"
-                        android:layout_width="40dp"
-                        android:layout_height="match_parent"
-                        android:checked="true"
-                        android:textOff="Manual" />
+                        android:layout_width="48dp"
+                        android:layout_height="48dp"
+                        android:layout_marginEnd="8dp"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="Play or Pause"
+                        android:scaleType="centerInside"
+                        app:srcCompat="@android:drawable/ic_media_pause"
+                        app:tint="@color/brand_primary" />
 
                     <FrameLayout
                         android:layout_width="wrap_content"
