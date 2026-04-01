@@ -347,36 +347,49 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             viewModel.activeIndex.collect { newIndex ->
                 val oldIndex = lyricAdapter?.activeIndex ?: -1
-
-                // Update the adapter's internal state
                 lyricAdapter?.activeIndex = newIndex
 
-                // OPTIMIZATION: Only refresh the two lines that changed!
                 if (oldIndex != -1) lyricAdapter?.notifyItemChanged(oldIndex)
+
                 if (newIndex != -1) {
                     lyricAdapter?.notifyItemChanged(newIndex)
 
-                    // Auto-scroll and Dict Box logic
-                    findViewById<RecyclerView>(R.id.lyricRecyclerView).smoothScrollToPosition(
-                        newIndex
-                    )
+                    // --- CUSTOM CENTERING LOGIC ---
+                    val recyclerView = findViewById<RecyclerView>(R.id.lyricRecyclerView)
+                    val layoutManager = recyclerView.layoutManager as androidx.recyclerview.widget.LinearLayoutManager
+
+                    // Calculate the middle of the RecyclerView
+                    val offset = recyclerView.height / 2 - 100 // Subtracting 100px for the approximate height of one lyric row
+
+                    // This force-scrolls the index to the top, then applies the 'offset'
+                    // to push it down to the middle.
+                    layoutManager.scrollToPositionWithOffset(newIndex, offset)
+
                     displayPreparedLine(newIndex)
                 }
             }
         }
 
         // --- 2. SETUP SYNC TOGGLE & ANIMATION ---
+        val fabReSync = findViewById<com.google.android.material.floatingactionbutton.FloatingActionButton>(R.id.fabReSync)
         val syncBtn = findViewById<ToggleButton>(R.id.syncToggleButton)
         findViewById<TextView>(R.id.floatingWarningText) // Grab the new text
         syncBtn.setOnCheckedChangeListener { _, isChecked ->
             if (isChecked) {
                 viewModel.setSource(LyricSource.SPOTIFY)
+                fabReSync.visibility = View.GONE // Hide FAB if manually enabled via toggle
 
                 // Force a re-fetch of the ACTUAL Spotify song
                 spotifyAppRemote?.playerApi?.playerState?.setResultCallback { playerState ->
                     val track = playerState.track
                     if (track != null) {
                         // fetchLyrics(track.name, track.artist.name)
+                    }// Optional: Force a scroll back to active line
+                    val currentActive = viewModel.activeIndex.value
+                    if (currentActive != -1) {
+                        findViewById<RecyclerView>(R.id.lyricRecyclerView).smoothScrollToPosition(
+                            currentActive
+                        )
                     }
                 }
             } else {
@@ -387,6 +400,45 @@ class MainActivity : AppCompatActivity() {
         androidx.appcompat.widget.TooltipCompat.setTooltipText(
             syncBtn, "Click to pause LyriSync from scrolling on touch"
         )
+
+        val lyricRecyclerView = findViewById<RecyclerView>(R.id.lyricRecyclerView)
+
+        // 1. Detect Manual Scroll
+        lyricRecyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+            override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
+                super.onScrollStateChanged(recyclerView, newState)
+
+                // SCROLL_STATE_DRAGGING means the user's finger is moving the list
+                if (newState == RecyclerView.SCROLL_STATE_DRAGGING && viewModel.source.value == LyricSource.SPOTIFY) {
+                    // Pause Sync and Show FAB
+                    viewModel.setSource(LyricSource.MANUAL)
+                    syncBtn.isChecked = false
+
+                    fabReSync.apply {
+                        visibility = View.VISIBLE
+                        alpha = 0f
+                        animate().alpha(1f).setDuration(200).start()
+                    }
+                }
+            }
+        })
+
+        // 2. Re-enable Sync on FAB Click
+        fabReSync.setOnClickListener {
+            viewModel.setSource(LyricSource.SPOTIFY)
+            syncBtn.isChecked = true
+
+            // Smoothly hide the FAB
+            fabReSync.animate().alpha(0f).setDuration(200).withEndAction {
+                fabReSync.visibility = View.GONE
+            }.start()
+
+            // Immediately snap back to the current playing line
+            val currentActive = viewModel.activeIndex.value
+            if (currentActive != -1) {
+                lyricRecyclerView.smoothScrollToPosition(currentActive)
+            }
+        }
 
         // --- 3. BOTTOM NAVIGATION ---
         // The .post block waits for the UI to measure itself before doing math
