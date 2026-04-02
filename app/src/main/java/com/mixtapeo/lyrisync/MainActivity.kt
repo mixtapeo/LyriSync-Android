@@ -5,7 +5,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.Color
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -26,6 +25,7 @@ import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.edit
 import androidx.core.graphics.toColorInt
+import androidx.core.net.toUri
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -39,13 +39,11 @@ import androidx.room.PrimaryKey
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import coil.load
-import com.mixtapeo.lyrisync.BuildConfig
 import com.atilika.kuromoji.ipadic.Tokenizer
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.spotify.android.appremote.api.ConnectionParams
 import com.spotify.android.appremote.api.Connector
 import com.spotify.android.appremote.api.SpotifyAppRemote
-import com.spotify.android.appremote.api.error.SpotifyConnectionTerminatedException
 import com.spotify.protocol.client.error.RemoteClientException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -219,7 +217,6 @@ class MainActivity : AppCompatActivity() {
     private val preparedLineSets = mutableMapOf<Int, JishoLineSet>()
     private val viewModel: LyriSyncViewModel by viewModels()
     private var reconnectTry = 0
-    private val maxRetries = 3
     private var connectionMonitorJob: Job? = null
     private var isConnecting = false
     private var currentTrackUri: String? = null
@@ -232,7 +229,7 @@ class MainActivity : AppCompatActivity() {
     private var webApiProgressMs = -1L
     private var isWebPlaying = false
 
-    @SuppressLint("SetTextI18n", "NotifyDataSetChanged")
+    @SuppressLint("SetTextI18n", "NotifyDataSetChanged", "CutPasteId")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -311,7 +308,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         findViewById<Button>(R.id.btnGithub).setOnClickListener {
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/mixtapeo"))
+            val intent = Intent(Intent.ACTION_VIEW, "https://github.com/mixtapeo".toUri())
             startActivity(intent)
         }
 
@@ -391,7 +388,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             // 2. EXISTING LOGIC
-            sharedPrefs.edit().putInt("DEF_LIMIT", newLimit).apply()
+            sharedPrefs.edit { putInt("DEF_LIMIT", newLimit) }
             jishoAdapter.definitionLimit = newLimit
             jishoAdapter.notifyDataSetChanged()
         }
@@ -647,7 +644,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStart() {
         super.onStart()
-        val sharedPrefs = getSharedPreferences("LyriSyncPrefs", Context.MODE_PRIVATE)
+        val sharedPrefs = getSharedPreferences("LyriSyncPrefs", MODE_PRIVATE)
         val isFirstRun = sharedPrefs.getBoolean("IS_FIRST_RUN", true)
 
         if (!isFirstRun) {
@@ -674,7 +671,7 @@ class MainActivity : AppCompatActivity() {
         if (wipeRequested) {
             jishoHistory.clear()
             jishoAdapter?.notifyDataSetChanged()
-            sharedPrefs.edit().putBoolean("WIPE_REQUESTED", false).apply()
+            sharedPrefs.edit { putBoolean("WIPE_REQUESTED", false) }
         }
 
         val refreshLyricsRequested = sharedPrefs.getBoolean("REFRESH_LYRICS_REQUESTED", false)
@@ -729,6 +726,7 @@ class MainActivity : AppCompatActivity() {
 
     private var syncAndMonitorJob: Job? = null
 
+    @SuppressLint("UseKtx")
     private fun startHybridSyncLoop() {
         syncAndMonitorJob?.cancel()
         syncAndMonitorJob = lifecycleScope.launch(Dispatchers.Main) {
@@ -782,7 +780,7 @@ class MainActivity : AppCompatActivity() {
                     // ---------------------------------------------------------
                     if (banner.visibility == View.GONE) {
                         banner.text = "Cloud Sync Active (Local App Asleep/Missing)"
-                        banner.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#E65100"))
+                        banner.backgroundTintList = ColorStateList.valueOf("#E65100".toColorInt())
                         banner.visibility = View.VISIBLE
                     }
 
@@ -882,20 +880,6 @@ class MainActivity : AppCompatActivity() {
 
     private var lastPlaybackPosition: Long = -1L
 
-    private fun wakeUpSpotify() {
-        val spotifyPackage = "com.spotify.music"
-        val launchIntent = packageManager.getLaunchIntentForPackage(spotifyPackage)
-
-        if (launchIntent != null) {
-            Toast.makeText(this, "Waking Spotify to sync...", Toast.LENGTH_SHORT).show()
-            // Brings Spotify to the foreground briefly to restore its network privileges
-            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
-            startActivity(launchIntent)
-        } else {
-            Toast.makeText(this, "Spotify not installed.", Toast.LENGTH_SHORT).show()
-        }
-    }
-
     // <------- support funcs ------->
     // Setup Coil ImageLoader with GIF support
     private fun showFirstStartDialog(prefs: android.content.SharedPreferences) {
@@ -910,7 +894,7 @@ class MainActivity : AppCompatActivity() {
         // 1. Create a specialized Loader for animations
         val animationLoader = coil.ImageLoader.Builder(this)
             .components {
-                if (android.os.Build.VERSION.SDK_INT >= 28) {
+                if (Build.VERSION.SDK_INT >= 28) {
                     add(coil.decode.ImageDecoderDecoder.Factory())
                 } else {
                     add(coil.decode.GifDecoder.Factory())
@@ -928,7 +912,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         btnNever.setOnClickListener {
-            prefs.edit().putBoolean("IS_FIRST_RUN", false).apply()
+            prefs.edit { putBoolean("IS_FIRST_RUN", false) }
             overlay.visibility = View.GONE
             reconnectToSpotify()
         }
@@ -1442,7 +1426,7 @@ class JishoHistoryAdapter(private val history: List<JishoLineSet>) :
 
                 text = spannable
                 textSize = 15f
-                setTextColor(Color.parseColor("#E0E0E0"))
+                setTextColor("#E0E0E0".toColorInt())
                 setPadding(32, 24, 32, 24)
 
                 val marginParams = android.widget.LinearLayout.LayoutParams(
@@ -1464,7 +1448,7 @@ class JishoHistoryAdapter(private val history: List<JishoLineSet>) :
                 isClickable = true
                 isFocusable = true
 
-                val typedValue = android.util.TypedValue()
+                val typedValue = TypedValue()
                 context.theme.resolveAttribute(
                     android.R.attr.selectableItemBackground, typedValue, true
                 )
@@ -1476,13 +1460,13 @@ class JishoHistoryAdapter(private val history: List<JishoLineSet>) :
                     val flashcardText =
                         "${jishoWord.phrase} [${jishoWord.reading}]\n\n$limitedDefinitions"
 
-                    val sendIntent = android.content.Intent().apply {
-                        action = android.content.Intent.ACTION_SEND
-                        putExtra(android.content.Intent.EXTRA_TEXT, flashcardText)
+                    val sendIntent = Intent().apply {
+                        action = Intent.ACTION_SEND
+                        putExtra(Intent.EXTRA_TEXT, flashcardText)
                         type = "text/plain"
                     }
                     val shareIntent =
-                        android.content.Intent.createChooser(sendIntent, "Send to Anki")
+                        Intent.createChooser(sendIntent, "Send to Anki")
                     context.startActivity(shareIntent)
                 }
             }
@@ -1498,6 +1482,7 @@ class SearchAdapter(
     private val onItemClick: (LrcResponse) -> Unit // 1. Added a click listener function
 ) : RecyclerView.Adapter<SearchAdapter.ViewHolder>() {
 
+    @SuppressLint("NotifyDataSetChanged")
     fun updateData(newResults: List<LrcResponse>) {
         this.results = newResults
         notifyDataSetChanged()
@@ -1521,7 +1506,7 @@ class SearchAdapter(
         holder.title.textSize = 16f
 
         holder.artist.text = "${item.artistName} • Has Synced Lyrics: ${item.syncedLyrics != null}"
-        holder.artist.setTextColor(Color.parseColor("#A0A0A0"))
+        holder.artist.setTextColor("#A0A0A0".toColorInt())
 
         // 2. Trigger the listener when the user taps this row
         holder.itemView.setOnClickListener {
