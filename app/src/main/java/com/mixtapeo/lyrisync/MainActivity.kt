@@ -734,42 +734,55 @@ class MainActivity : AppCompatActivity() {
         syncAndMonitorJob = lifecycleScope.launch(Dispatchers.Main) {
 
             var timeSinceLastWebPoll = 4000
+            var timeSinceLastStaleCheck = 0 // <--- NEW: Grace period counter
             val banner = findViewById<TextView>(R.id.spotifyOfflineBanner)
 
             while (isActive) {
                 val isSdkConnected = spotifyAppRemote?.isConnected == true
 
                 if (activeEngine == SyncEngine.SDK) {
-                    // --- SDK MODE ---
+                    // ---------------------------------------------------------
+                    // ENGINE 1: LOCAL SDK MODE (Fast, 100ms UI updates)
+                    // ---------------------------------------------------------
                     banner.visibility = View.GONE
 
-                    if (isSdkConnected) {
+                    if (!isSdkConnected) {
+                        Log.w("Lyrisync", "SDK Disconnected! Switching to Web API Fallback.")
+                        activeEngine = SyncEngine.WEB_API
+                        timeSinceLastWebPoll = 4000
+                    } else {
+                        timeSinceLastStaleCheck += 100 // Count up every tick
+
                         spotifyAppRemote?.playerApi?.playerState?.setResultCallback { playerState ->
-                            val sdkPos = playerState.playbackPosition
                             val isPlaying = !playerState.isPaused
+                            val currentSdkPos = playerState.playbackPosition
 
-                            // If the local SDK is playing and the timestamp has physically moved
-                            // since we last checked, it means Android woke the daemon up.
-                            if (isPlaying && sdkPos != lastSdkPosition && sdkPos > 0) {
-                                Log.i("Lyrisync", "SDK woke up and is moving! Switching back to Local Mode.")
-                                activeEngine = SyncEngine.SDK
+                            // ONLY check for staleness every 2 seconds
+                            if (timeSinceLastStaleCheck >= 2000) {
+                                timeSinceLastStaleCheck = 0 // Reset counter
 
-                                // Force the banner to hide the exact millisecond we switch
-                                if (banner.visibility == View.VISIBLE) {
-                                    banner.visibility = View.GONE
+                                val isStale = isPlaying && currentSdkPos == lastSdkPosition && currentSdkPos > 0
+
+                                if (isStale) {
+                                    Log.w("Lyrisync", "SDK Frozen! Switching to Web API Fallback.")
+                                    activeEngine = SyncEngine.WEB_API
+                                    timeSinceLastWebPoll = 4000
                                 }
+                                // Set baseline for the NEXT 2-second check
+                                lastSdkPosition = currentSdkPos
                             }
 
-                            // Always keep our tracker updated so we can detect movement
-                            lastSdkPosition = sdkPos
+                            // Always sync lyrics immediately to keep the UI buttery smooth
+                            syncLyricsToPosition(currentSdkPos)
                         }
                     }
                 } else {
-                    // --- WEB API MODE ---
+                    // ---------------------------------------------------------
+                    // ENGINE 2: WEB API FALLBACK MODE (Polled, Dead-Reckoned)
+                    // ---------------------------------------------------------
                     if (banner.visibility == View.GONE) {
                         banner.text = "Cloud Sync Active (Local App Asleep/Missing)"
-                        banner.backgroundTintList =
-                            ColorStateList.valueOf(Color.parseColor("#E65100"))
+                        banner.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#E65100"))
                         banner.visibility = View.VISIBLE
                     }
 
@@ -783,7 +796,6 @@ class MainActivity : AppCompatActivity() {
                             val response = spotifyApiService.getPlaybackState("Bearer $myAccessToken")
 
                             if (response.isSuccessful && response.body() != null) {
-                                // SUCCESS: Update your state
                                 val state = response.body()!!
                                 isWebPlaying = state.is_playing
                                 webApiProgressMs = state.progress_ms
@@ -798,29 +810,33 @@ class MainActivity : AppCompatActivity() {
                                     }
                                 }
                             } else if (response.code() == 429) {
-                                // 🚨 RED ALERT: WE HIT THE RATE LIMIT 🚨
-                                // Spotify sends a "Retry-After" header telling us how many SECONDS to wait.
-                                // If it's missing, we default to a safe 10 seconds.
                                 val retryAfterSeconds = response.headers()["Retry-After"]?.toIntOrNull() ?: 10
-                                Log.e("Lyrisync", "429 RATE LIMIT: Spotify says chill for $retryAfterSeconds seconds.")
+                                Log.e("Lyrisync", "429 RATE LIMIT: Wait ${retryAfterSeconds}s.")
+                                timeSinceLastWebPoll = -(retryAfterSeconds * 1000) // Apply Penalty
 
-                                // Apply the penalty!
-                                // By setting timeSinceLastWebPoll to a negative number, the loop will
-                                // naturally count up by +100ms every tick, but it won't hit the 4000ms trigger
-                                // until the penalty time has completely burned off.
-                                timeSinceLastWebPoll = -(retryAfterSeconds * 1000)
-
-                                // Give the user a visual heads up
-                                if (banner.visibility == View.VISIBLE) {
-                                    banner.text = "API Limit Hit. Pausing for ${retryAfterSeconds}s..."
-                                    banner.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#D32F2F")) // Red
-                                }
-                            } else {
-                                // Handle 204 No Content, 401 Unauthorized, etc.
-                                Log.w("Lyrisync", "Web API returned code: ${response.code()}")
+                                banner.text = "API Limit Hit. Pausing for ${retryAfterSeconds}s..."
+                                banner.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#D32F2F"))
                             }
                         } catch (e: Exception) {
                             Log.e("Lyrisync", "Web API Poll Failed: ${e.message}")
+                        }
+
+                        // 2. RECOVERY CHECK: Can we switch back to the SDK?
+                        if (isSdkConnected) {
+                            spotifyAppRemote?.playerApi?.playerState?.setResultCallback { playerState ->
+                                val sdkPos = playerState.playbackPosition
+                                val isPlaying = !playerState.isPaused
+
+                                // Does the SDK show active movement?
+                                if (isPlaying && sdkPos != lastSdkPosition && sdkPos > 0) {
+                                    Log.i("Lyrisync", "SDK woke up and is moving! Switching back to Local Mode.")
+                                    activeEngine = SyncEngine.SDK
+                                    timeSinceLastStaleCheck = 0 // Reset the Stale Check so it doesn't instantly fail
+
+                                    if (banner.visibility == View.VISIBLE) banner.visibility = View.GONE
+                                }
+                                lastSdkPosition = sdkPos
+                            }
                         }
                     }
 
@@ -830,6 +846,7 @@ class MainActivity : AppCompatActivity() {
                         syncLyricsToPosition(webApiProgressMs)
                     }
                 }
+
                 delay(100)
             }
         }
