@@ -597,8 +597,9 @@ class MainActivity : AppCompatActivity() {
 
         if (!isFirstRun) {
             // Try to connect silently first. Do NOT force the auth view yet.
-            reconnectToSpotify(forceAuthView = true)
+            reconnectToSpotify(forceAuthView = false)
         }
+        startConnectionMonitor()
     }
 
     override fun onStop() {
@@ -703,6 +704,37 @@ class MainActivity : AppCompatActivity() {
                 if (syncJob == null || !syncJob!!.isActive) {
                     startSyncLoop()
                 }
+            }
+        }
+    }
+
+    private fun startConnectionMonitor() {
+        connectionMonitorJob?.cancel() // Cancel any existing job just in case
+        Log.d("Lyrisync", "Heartbeat start")
+        connectionMonitorJob = lifecycleScope.launch(Dispatchers.Main) {
+            while (isActive) {
+                val banner = findViewById<TextView>(R.id.spotifyOfflineBanner)
+                // Check if the remote exists and is actively connected
+                val isConnected = spotifyAppRemote?.isConnected == true
+                Log.d("Lyrisync", "Heartbeat active: $isConnected")
+                if (isConnected) {
+                    if (banner.visibility == View.VISIBLE) {
+                        banner.visibility = View.GONE
+                    }
+                } else {
+                    if (banner.visibility == View.GONE) {
+                        banner.visibility = View.VISIBLE
+                    }
+
+                    // If we disconnected but aren't currently trying to connect, trigger a silent reconnect
+                    if (!isConnecting) {
+                        Log.d("Lyrisync", "Heartbeat missed: Attempting background reconnect")
+                        reconnectToSpotify(forceAuthView = false)
+                    }
+                }
+
+                // Wait 5 seconds before checking again
+                delay(5000)
             }
         }
     }
