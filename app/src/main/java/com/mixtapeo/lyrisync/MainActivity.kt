@@ -39,6 +39,7 @@ import androidx.room.PrimaryKey
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import coil.load
+import com.mixtapeo.lyrisync.BuildConfig
 import com.atilika.kuromoji.ipadic.Tokenizer
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.spotify.android.appremote.api.ConnectionParams
@@ -57,6 +58,48 @@ import androidx.room.Query as SqlQuery
 import retrofit2.http.Query as ApiQuery
 
 private val mainHandler = Handler(Looper.getMainLooper())
+
+
+data class SpotifyPlaybackResponse(
+    val is_playing: Boolean,
+    val progress_ms: Long,
+    val item: SpotifyTrack?
+)
+
+data class SpotifyTrack(
+    val uri: String,
+    val name: String,
+    val artists: List<SpotifyArtist>
+)
+
+data class SpotifyArtist(val name: String)
+
+interface SpotifyWebApi {
+    @GET("v1/me/player")
+    suspend fun getPlaybackState(
+        @retrofit2.http.Header("Authorization") bearerToken: String
+    ): retrofit2.Response<SpotifyPlaybackResponse>
+}
+
+private val spotifyApiService: SpotifyWebApi by lazy {
+    // 1. Create the logger
+    val interceptor = okhttp3.logging.HttpLoggingInterceptor().apply {
+        level = okhttp3.logging.HttpLoggingInterceptor.Level.BODY
+    }
+
+    // 2. Add it to a client
+    val client = okhttp3.OkHttpClient.Builder()
+        .addInterceptor(interceptor)
+        .build()
+
+    // 3. Attach the client to Retrofit
+    retrofit2.Retrofit.Builder()
+        .baseUrl("https://api.spotify.com/")
+        .client(client)
+        .addConverterFactory(retrofit2.converter.gson.GsonConverterFactory.create())
+        .build()
+        .create(SpotifyWebApi::class.java)
+}
 
 data class LrcResponse(
     val id: Int,
@@ -160,11 +203,13 @@ private val queryCache = mutableMapOf<String, JishoEntry?>()
 private val jpCharacterRegex = Regex("[\\u3040-\\u30ff\\u4e00-\\u9faf]")
 
 class MainActivity : AppCompatActivity() {
+    private val clientId = BuildConfig.SPOTIFY_CLIENT_ID
+    private var myAccessToken = BuildConfig.myAccessToken
+
     private var translatedLyrics = listOf<String>()
     private var lyricAdapter: LyricAdapter? = null
     private var parsedLyrics = listOf<LyricLine>()
     private var syncJob: Job? = null
-    private val clientId = "06f5df4fd4234a06bbc234600ed42851"
     private val redirectUri = "lyrisync://callback"
     private var spotifyAppRemote: SpotifyAppRemote? = null
     private val songDictionary = mutableMapOf<String, CharSequence>()
@@ -179,6 +224,13 @@ class MainActivity : AppCompatActivity() {
     private var isConnecting = false
     private var currentTrackUri: String? = null
     private var activeIndex = -1
+
+    enum class SyncEngine { SDK, WEB_API }
+
+    private var activeEngine = SyncEngine.SDK
+    private var lastSdkPosition = -1L
+    private var webApiProgressMs = -1L
+    private var isWebPlaying = false
 
     @SuppressLint("SetTextI18n", "NotifyDataSetChanged")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -386,7 +438,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         // --- 2. SETUP SYNC TOGGLE & ANIMATION ---
-        val fabReSync = findViewById<com.google.android.material.floatingactionbutton.FloatingActionButton>(R.id.fabReSync)
+        val fabReSync =
+            findViewById<com.google.android.material.floatingactionbutton.FloatingActionButton>(R.id.fabReSync)
         val syncBtn = findViewById<ToggleButton>(R.id.syncToggleButton)
         findViewById<TextView>(R.id.floatingWarningText) // Grab the new text
         syncBtn.setOnCheckedChangeListener { _, isChecked ->
@@ -598,10 +651,12 @@ class MainActivity : AppCompatActivity() {
         val isFirstRun = sharedPrefs.getBoolean("IS_FIRST_RUN", true)
 
         if (!isFirstRun) {
-            // Try to connect silently first. Do NOT force the auth view yet.
+            // Try to connect silently first.
             reconnectToSpotify(forceAuthView = false)
         }
-        startConnectionMonitor()
+
+        // START THE NEW HYBRID LOOP HERE
+        startHybridSyncLoop()
     }
 
     override fun onStop() {
@@ -650,31 +705,129 @@ class MainActivity : AppCompatActivity() {
 
             override fun onFailure(throwable: Throwable) {
                 isConnecting = false
+                Log.e("Lyrisync", "Connection failed: ${throwable.message}")
+
+                // If it fails, we DO NOT loop a reconnect attempt here anymore.
+                // We just let it fail. The startHybridSyncLoop will detect that
+                // isConnected == false and automatically switch to the Web API!
 
                 val rootCause = throwable.cause
                 if (throwable is RemoteClientException || rootCause is RemoteClientException) {
-                    // Silent auth failed. Ask the user to click the button to authorize.
-                    runOnUiThread { showSpotifyAuthDialog() }
-                } else if (throwable is SpotifyConnectionTerminatedException && reconnectTry < maxRetries) {
-                    reconnectTry++
-                    mainHandler.postDelayed({ reconnectToSpotify(forceAuthView) }, 1000)
+                    // Only show the auth dialog if the user explicitly clicked a button
+                    if (forceAuthView) {
+                        runOnUiThread { showSpotifyAuthDialog() }
+                    }
                 } else {
-                    Log.e("Lyrisync", "Connection failed: ${throwable.message}")
                     runOnUiThread {
                         findViewById<TextView>(R.id.songTitleText)?.text =
-                            "Connection Failed: ${throwable.message}"
+                            "Spotify Local App Not Found"
                     }
                 }
             }
         })
     }
 
-    private fun startSyncLoop() {
-        syncJob = lifecycleScope.launch {
+    private var syncAndMonitorJob: Job? = null
+
+    private fun startHybridSyncLoop() {
+        syncAndMonitorJob?.cancel()
+        syncAndMonitorJob = lifecycleScope.launch(Dispatchers.Main) {
+
+            var timeSinceLastWebPoll = 4000
+            val banner = findViewById<TextView>(R.id.spotifyOfflineBanner)
+
             while (isActive) {
-                spotifyAppRemote?.playerApi?.playerState?.setResultCallback { playerState ->
-                    runOnUiThread {
-                        syncLyricsToPosition(playerState.playbackPosition)
+                val isSdkConnected = spotifyAppRemote?.isConnected == true
+
+                if (activeEngine == SyncEngine.SDK) {
+                    // --- SDK MODE ---
+                    banner.visibility = View.GONE
+
+                    if (isSdkConnected) {
+                        spotifyAppRemote?.playerApi?.playerState?.setResultCallback { playerState ->
+                            val sdkPos = playerState.playbackPosition
+                            val isPlaying = !playerState.isPaused
+
+                            // If the local SDK is playing and the timestamp has physically moved
+                            // since we last checked, it means Android woke the daemon up.
+                            if (isPlaying && sdkPos != lastSdkPosition && sdkPos > 0) {
+                                Log.i("Lyrisync", "SDK woke up and is moving! Switching back to Local Mode.")
+                                activeEngine = SyncEngine.SDK
+
+                                // Force the banner to hide the exact millisecond we switch
+                                if (banner.visibility == View.VISIBLE) {
+                                    banner.visibility = View.GONE
+                                }
+                            }
+
+                            // Always keep our tracker updated so we can detect movement
+                            lastSdkPosition = sdkPos
+                        }
+                    }
+                } else {
+                    // --- WEB API MODE ---
+                    if (banner.visibility == View.GONE) {
+                        banner.text = "Cloud Sync Active (Local App Asleep/Missing)"
+                        banner.backgroundTintList =
+                            ColorStateList.valueOf(Color.parseColor("#E65100"))
+                        banner.visibility = View.VISIBLE
+                    }
+
+                    timeSinceLastWebPoll += 100
+
+                    // 1. Check the Web API every 4 seconds
+                    if (timeSinceLastWebPoll >= 4000) {
+                        timeSinceLastWebPoll = 0
+
+                        try {
+                            val response = spotifyApiService.getPlaybackState("Bearer $myAccessToken")
+
+                            if (response.isSuccessful && response.body() != null) {
+                                // SUCCESS: Update your state
+                                val state = response.body()!!
+                                isWebPlaying = state.is_playing
+                                webApiProgressMs = state.progress_ms
+
+                                state.item?.let { track ->
+                                    if (track.uri != currentTrackUri) {
+                                        currentTrackUri = track.uri
+                                        activeIndex = -1
+                                        findViewById<TextView>(R.id.songTitleText).text = track.name
+                                        findViewById<TextView>(R.id.artistNameText).text = track.artists.firstOrNull()?.name ?: ""
+                                        fetchLyrics(track.name, track.artists.firstOrNull()?.name ?: "")
+                                    }
+                                }
+                            } else if (response.code() == 429) {
+                                // 🚨 RED ALERT: WE HIT THE RATE LIMIT 🚨
+                                // Spotify sends a "Retry-After" header telling us how many SECONDS to wait.
+                                // If it's missing, we default to a safe 10 seconds.
+                                val retryAfterSeconds = response.headers()["Retry-After"]?.toIntOrNull() ?: 10
+                                Log.e("Lyrisync", "429 RATE LIMIT: Spotify says chill for $retryAfterSeconds seconds.")
+
+                                // Apply the penalty!
+                                // By setting timeSinceLastWebPoll to a negative number, the loop will
+                                // naturally count up by +100ms every tick, but it won't hit the 4000ms trigger
+                                // until the penalty time has completely burned off.
+                                timeSinceLastWebPoll = -(retryAfterSeconds * 1000)
+
+                                // Give the user a visual heads up
+                                if (banner.visibility == View.VISIBLE) {
+                                    banner.text = "API Limit Hit. Pausing for ${retryAfterSeconds}s..."
+                                    banner.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#D32F2F")) // Red
+                                }
+                            } else {
+                                // Handle 204 No Content, 401 Unauthorized, etc.
+                                Log.w("Lyrisync", "Web API returned code: ${response.code()}")
+                            }
+                        } catch (e: Exception) {
+                            Log.e("Lyrisync", "Web API Poll Failed: ${e.message}")
+                        }
+                    }
+
+                    // 3. DEAD RECKONING
+                    if (isWebPlaying && activeEngine == SyncEngine.WEB_API) {
+                        webApiProgressMs += 100
+                        syncLyricsToPosition(webApiProgressMs)
                     }
                 }
                 delay(100)
@@ -704,70 +857,13 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 if (syncJob == null || !syncJob!!.isActive) {
-                    startSyncLoop()
+                    startHybridSyncLoop()
                 }
             }
         }
     }
 
     private var lastPlaybackPosition: Long = -1L
-
-    private fun startConnectionMonitor() {
-        connectionMonitorJob?.cancel()
-        Log.d("Lyrisync", "Heartbeat start")
-
-        connectionMonitorJob = lifecycleScope.launch(Dispatchers.Main) {
-            while (isActive) {
-                val banner = findViewById<TextView>(R.id.spotifyOfflineBanner)
-                val isConnected = spotifyAppRemote?.isConnected == true
-
-                if (isConnected) {
-                    // Fetch the player state to verify the timestamp is actually moving
-                    spotifyAppRemote?.playerApi?.playerState?.setResultCallback { playerState ->
-                        val isPlaying = !playerState.isPaused
-                        val currentPos = playerState.playbackPosition
-                        Log.d("Lyrisync", "pos: $currentPos, isPlaying: $isPlaying")
-
-                        // If it claims to be playing, but the position hasn't moved since our last 2-second check, it's frozen.
-                        val isStale = isPlaying && currentPos == lastPlaybackPosition && currentPos > 0
-
-                        lastPlaybackPosition = currentPos
-
-                        if (isStale) {
-                            if (banner.visibility == View.GONE) {
-                                banner.text = "Spotify is sleeping. Tap to sync."
-                                banner.visibility = View.VISIBLE
-
-                                // Let the user tap the banner to instantly fix the issue
-                                banner.setOnClickListener { wakeUpSpotify() }
-                            }
-                        } else {
-                            // Everything is normal and playing properly
-                            if (banner.visibility == View.VISIBLE) {
-                                banner.visibility = View.GONE
-                            }
-                        }
-                    }
-                } else {
-                    // Completely disconnected from the local App Remote
-                    if (banner.visibility == View.GONE) {
-                        banner.text = "Spotify disconnected. Attempting to reconnect..."
-                        banner.visibility = View.VISIBLE
-                        banner.setOnClickListener(null) // Remove click listener
-                    }
-
-                    if (!isConnecting) {
-                        Log.d("Lyrisync", "Heartbeat missed: Attempting background reconnect")
-                        reconnectToSpotify(forceAuthView = false)
-                    }
-                }
-
-                // Check every 2 seconds. This guarantees enough time has passed to see if the
-                // playback position naturally advanced.
-                delay(2000)
-            }
-        }
-    }
 
     private fun wakeUpSpotify() {
         val spotifyPackage = "com.spotify.music"

@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -8,6 +10,12 @@ android {
     namespace = "com.mixtapeo.lyrisync"
     compileSdk = 36
 
+    val localProperties = Properties()
+    val localPropertiesFile = rootProject.file("local.properties")
+    if (localPropertiesFile.exists()) {
+        localProperties.load(localPropertiesFile.inputStream())
+    }
+
     defaultConfig {
         applicationId = "com.mixtapeo.lyrisync"
         minSdk = 24
@@ -16,6 +24,9 @@ android {
         versionName = "v0.41"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        buildConfigField("String", "SPOTIFY_CLIENT_ID", "\"${localProperties.getProperty("SPOTIFY_CLIENT_ID") ?: ""}\"")
+        buildConfigField("String", "myAccessToken", "\"${localProperties.getProperty("myAccessToken") ?: ""}\"")
     }
 
     buildTypes {
@@ -25,9 +36,6 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            // signingConfig = signingConfigs.getByName("debug")
-
-            // This ensures the APK stays "unsigned" so the GitHub Action can sign it properly
             signingConfig = null
         }
     }
@@ -37,6 +45,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     viewBinding {
         enable = true
@@ -73,21 +82,22 @@ dependencies {
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
-    
+
     // This tells Gradle to include the Spotify SDK file you just pasted
     implementation(files("libs/spotify-app-remote-release-0.8.0.aar"))
-    
+
     // This is the missing piece the Spotify SDK needs
     implementation(libs.gson)
     implementation(libs.androidx.appcompat)
-    
+
     implementation(libs.retrofit)
     implementation(libs.retrofit.gson)
-    
+
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
     ksp(libs.room.compiler)
     implementation(libs.coil.gif)
     implementation(libs.coil)
     implementation("com.atilika.kuromoji:kuromoji-ipadic:0.9.0")
+    implementation("com.squareup.okhttp3:logging-interceptor:4.11.0")
 }
