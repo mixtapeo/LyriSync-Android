@@ -356,10 +356,12 @@ class MainActivity : AppCompatActivity() {
 
                     // --- CUSTOM CENTERING LOGIC ---
                     val recyclerView = findViewById<RecyclerView>(R.id.lyricRecyclerView)
-                    val layoutManager = recyclerView.layoutManager as androidx.recyclerview.widget.LinearLayoutManager
+                    val layoutManager =
+                        recyclerView.layoutManager as androidx.recyclerview.widget.LinearLayoutManager
 
                     // Calculate the middle of the RecyclerView
-                    val offset = recyclerView.height / 2 - 100 // Subtracting 100px for the approximate height of one lyric row
+                    val offset =
+                        recyclerView.height / 2 - 100 // Subtracting 100px for the approximate height of one lyric row
 
                     // This force-scrolls the index to the top, then applies the 'offset'
                     // to push it down to the middle.
@@ -675,7 +677,7 @@ class MainActivity : AppCompatActivity() {
                         syncLyricsToPosition(playerState.playbackPosition)
                     }
                 }
-                delay(32)
+                delay(100)
             }
         }
     }
@@ -708,34 +710,76 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private var lastPlaybackPosition: Long = -1L
+
     private fun startConnectionMonitor() {
-        connectionMonitorJob?.cancel() // Cancel any existing job just in case
+        connectionMonitorJob?.cancel()
         Log.d("Lyrisync", "Heartbeat start")
+
         connectionMonitorJob = lifecycleScope.launch(Dispatchers.Main) {
             while (isActive) {
                 val banner = findViewById<TextView>(R.id.spotifyOfflineBanner)
-                // Check if the remote exists and is actively connected
                 val isConnected = spotifyAppRemote?.isConnected == true
-                Log.d("Lyrisync", "Heartbeat active: $isConnected")
+
                 if (isConnected) {
-                    if (banner.visibility == View.VISIBLE) {
-                        banner.visibility = View.GONE
+                    // Fetch the player state to verify the timestamp is actually moving
+                    spotifyAppRemote?.playerApi?.playerState?.setResultCallback { playerState ->
+                        val isPlaying = !playerState.isPaused
+                        val currentPos = playerState.playbackPosition
+                        Log.d("Lyrisync", "pos: $currentPos, isPlaying: $isPlaying")
+
+                        // If it claims to be playing, but the position hasn't moved since our last 2-second check, it's frozen.
+                        val isStale = isPlaying && currentPos == lastPlaybackPosition && currentPos > 0
+
+                        lastPlaybackPosition = currentPos
+
+                        if (isStale) {
+                            if (banner.visibility == View.GONE) {
+                                banner.text = "Spotify is sleeping. Tap to sync."
+                                banner.visibility = View.VISIBLE
+
+                                // Let the user tap the banner to instantly fix the issue
+                                banner.setOnClickListener { wakeUpSpotify() }
+                            }
+                        } else {
+                            // Everything is normal and playing properly
+                            if (banner.visibility == View.VISIBLE) {
+                                banner.visibility = View.GONE
+                            }
+                        }
                     }
                 } else {
+                    // Completely disconnected from the local App Remote
                     if (banner.visibility == View.GONE) {
+                        banner.text = "Spotify disconnected. Attempting to reconnect..."
                         banner.visibility = View.VISIBLE
+                        banner.setOnClickListener(null) // Remove click listener
                     }
 
-                    // If we disconnected but aren't currently trying to connect, trigger a silent reconnect
                     if (!isConnecting) {
                         Log.d("Lyrisync", "Heartbeat missed: Attempting background reconnect")
                         reconnectToSpotify(forceAuthView = false)
                     }
                 }
 
-                // Wait 5 seconds before checking again
-                delay(5000)
+                // Check every 2 seconds. This guarantees enough time has passed to see if the
+                // playback position naturally advanced.
+                delay(2000)
             }
+        }
+    }
+
+    private fun wakeUpSpotify() {
+        val spotifyPackage = "com.spotify.music"
+        val launchIntent = packageManager.getLaunchIntentForPackage(spotifyPackage)
+
+        if (launchIntent != null) {
+            Toast.makeText(this, "Waking Spotify to sync...", Toast.LENGTH_SHORT).show()
+            // Brings Spotify to the foreground briefly to restore its network privileges
+            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+            startActivity(launchIntent)
+        } else {
+            Toast.makeText(this, "Spotify not installed.", Toast.LENGTH_SHORT).show()
         }
     }
 
