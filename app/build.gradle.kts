@@ -20,8 +20,8 @@ android {
         applicationId = "com.mixtapeo.lyrisync"
         minSdk = 24
         targetSdk = 36
-        versionCode = 10
-        versionName = "v0.45"
+        versionCode = 11
+        versionName = "v0.45-hotfix"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

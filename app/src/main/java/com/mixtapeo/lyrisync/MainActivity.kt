@@ -990,21 +990,38 @@ class MainActivity : AppCompatActivity() {
                         parsedLyrics = parseLrc(bestMatch.syncedLyrics!!)
                         Log.d("LyriSync-debug", "Lyrics are: $parsedLyrics")
 
-                        val fullJapaneseText = parsedLyrics.joinToString("\n") { it.text }
-                        // check if song has any kanji (so skip translate on pure english songs); suboptimal but simple
+                        // 2. Filter out the blank gaps and save their original indices
+                        val nonBlankIndices = mutableListOf<Int>()
+                        val textToTranslate = mutableListOf<String>()
+
+                        parsedLyrics.forEachIndexed { index, line ->
+                            if (line.text.isNotBlank()) {
+                                nonBlankIndices.add(index)
+                                textToTranslate.add(line.text)
+                            }
+                        }
+
+                        val fullJapaneseText = textToTranslate.joinToString("\n")
                         val hasKanji = fullJapaneseText.contains(jpCharacterRegex)
                         Log.d("LyriSync-debug", "Has kanji: $hasKanji")
-                        // skip translation stuff if no kanji
-                        if (hasKanji) {
-                            // 1. Translate Japanese -> English
-                            val translationResponse =
-                                translationService.getTranslation(q = fullJapaneseText)
+
+                        if (hasKanji && textToTranslate.isNotEmpty()) {
+                            // 2. Fetch the translation
+                            val translationResponse = translationService.getTranslation(q = fullJapaneseText)
                             Log.d("Lyrisync", "Translation service called + $translationResponse")
                             val bulkResult = extractTextFromGoogle(translationResponse)
-                            translatedLyrics = bulkResult.split("\n")
+                            val tempTranslations = bulkResult.split("\n")
+
+                            // 3. Map the translations back to their exact original positions
+                            val alignedTranslations = MutableList(parsedLyrics.size) { "" }
+                            val limit = minOf(nonBlankIndices.size, tempTranslations.size)
+
+                            for (i in 0 until limit) {
+                                alignedTranslations[nonBlankIndices[i]] = tempTranslations[i].trim()
+                            }
+                            translatedLyrics = alignedTranslations
                         } else {
                             Log.d("Lyrisync", "No kanji found, skipping translation")
-                            // 2. It's an English song, so set empty
                             translatedLyrics = parsedLyrics.map { "" }
                         }
                         prefetchSongDictionary(parsedLyrics)
@@ -1278,14 +1295,33 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 // Call Google Translate
-                val fullJapaneseText = parsedLyrics.joinToString("\n") { it.text }
+                val nonBlankIndices = mutableListOf<Int>()
+                val textToTranslate = mutableListOf<String>()
+
+                parsedLyrics.forEachIndexed { index, line ->
+                    if (line.text.isNotBlank()) {
+                        nonBlankIndices.add(index)
+                        textToTranslate.add(line.text)
+                    }
+                }
+
+                val fullJapaneseText = textToTranslate.joinToString("\n")
+
                 if (fullJapaneseText.isNotBlank()) {
-                    val translationResponse =
-                        translationService.getTranslation(q = fullJapaneseText)
+                    val translationResponse = translationService.getTranslation(q = fullJapaneseText)
                     val bulkResult = extractTextFromGoogle(translationResponse)
-                    translatedLyrics = bulkResult.split("\n")
+                    val tempTranslations = bulkResult.split("\n")
+
+                    // Map translations to skip the dummy gaps
+                    val alignedTranslations = MutableList(parsedLyrics.size) { "" }
+                    val limit = minOf(nonBlankIndices.size, tempTranslations.size)
+
+                    for (i in 0 until limit) {
+                        alignedTranslations[nonBlankIndices[i]] = tempTranslations[i].trim()
+                    }
+                    translatedLyrics = alignedTranslations
                 } else {
-                    translatedLyrics = emptyList()
+                    translatedLyrics = parsedLyrics.map { "" }
                 }
 
                 // Send to Database for Furigana and Underlines
