@@ -89,26 +89,6 @@ interface SpotifyWebApi {
     ): retrofit2.Response<SpotifyPlaybackResponse>
 }
 
-private val spotifyApiService: SpotifyWebApi by lazy {
-    // 1. Create the logger
-    val interceptor = okhttp3.logging.HttpLoggingInterceptor().apply {
-        level = okhttp3.logging.HttpLoggingInterceptor.Level.BODY
-    }
-
-    // 2. Add it to a client
-    val client = okhttp3.OkHttpClient.Builder()
-        .addInterceptor(interceptor)
-        .build()
-
-    // 3. Attach the client to Retrofit
-    retrofit2.Retrofit.Builder()
-        .baseUrl("https://api.spotify.com/")
-        .client(client)
-        .addConverterFactory(retrofit2.converter.gson.GsonConverterFactory.create())
-        .build()
-        .create(SpotifyWebApi::class.java)
-}
-
 private val customOkHttpClient: okhttp3.OkHttpClient by lazy {
     okhttp3.OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS) // Time to establish the connection
@@ -204,23 +184,6 @@ abstract class AppDatabase : RoomDatabase() {
         }
     }
 }
-
-private val lrcService: LrcLibService by lazy {
-    retrofit2.Retrofit.Builder()
-        .baseUrl("https://lrclib.net/")
-        .client(customOkHttpClient)
-        .addConverterFactory(retrofit2.converter.gson.GsonConverterFactory.create())
-        .build()
-        .create(LrcLibService::class.java)
-}
-private val translationService: TranslationService by lazy {
-    retrofit2.Retrofit.Builder()
-        .baseUrl("https://translate.googleapis.com/")
-        .client(customOkHttpClient)
-        .addConverterFactory(retrofit2.converter.gson.GsonConverterFactory.create())
-        .build()
-        .create(TranslationService::class.java)
-}
 private val queryCache = mutableMapOf<String, JishoEntry?>()
 private val globalAnkiCache = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
 private val jpCharacterRegex = Regex("[\\u3040-\\u30ff\\u4e00-\\u9faf]")
@@ -228,7 +191,7 @@ val ankiCache = mutableMapOf<String, Boolean>()
 
 class MainActivity : AppCompatActivity() {
     private val clientId = BuildConfig.SPOTIFY_CLIENT_ID
-    private var myAccessToken = BuildConfig.myAccessToken
+    private var myAccessToken: String? = BuildConfig.myAccessToken
 
     private var translatedLyrics = listOf<String>()
     private var lyricAdapter: LyricAdapter? = null
@@ -270,6 +233,99 @@ class MainActivity : AppCompatActivity() {
             ankiRadioGroup.check(R.id.radioAnkiNone)
             getSharedPreferences("LyriSyncPrefs", MODE_PRIVATE).edit { putInt("ANKI_MODE", 0) }
         }
+    }
+    private val SPOTIFY_AUTH_REQUEST_CODE = 1337
+    private var isRefreshingToken = false
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+
+        if (requestCode == SPOTIFY_AUTH_REQUEST_CODE) {
+            // 1. RELEASE THE LOCK immediately
+            isRefreshingToken = false
+
+            val response = com.spotify.sdk.android.auth.AuthorizationClient.getResponse(resultCode, data)
+
+            when (response.type) {
+                com.spotify.sdk.android.auth.AuthorizationResponse.Type.TOKEN -> {
+                    val freshToken = response.accessToken
+                    Log.d("LyriSync", "Got fresh token! $freshToken")
+
+                    // Save it to SharedPreferences
+                    getSharedPreferences("LyriSyncPrefs", MODE_PRIVATE).edit {
+                        putString("SPOTIFY_TOKEN", freshToken)
+                    }
+
+                    // Update your local variable
+                    myAccessToken = freshToken
+
+                    // 2. RESTART THE ENGINE now that we have fuel
+                    startHybridSyncLoop()
+                }
+                com.spotify.sdk.android.auth.AuthorizationResponse.Type.ERROR -> {
+                    Log.e("LyriSync", "Auth error: ${response.error}")
+                    // Optional: Show a toast letting them know login failed
+                    Toast.makeText(this, "Spotify Login Failed", Toast.LENGTH_SHORT).show()
+                }
+                else -> {
+                    Log.w("LyriSync", "Auth cancelled or unknown response.")
+                }
+            }
+        }
+    }
+    private fun requestFreshSpotifyToken() {
+        val builder = com.spotify.sdk.android.auth.AuthorizationRequest.Builder(
+            clientId,
+            com.spotify.sdk.android.auth.AuthorizationResponse.Type.TOKEN,
+            redirectUri
+        )
+
+        builder.setScopes(arrayOf("user-read-playback-state", "user-modify-playback-state"))
+        val request = builder.build()
+
+        // This opens the Spotify login screen
+        com.spotify.sdk.android.auth.AuthorizationClient.openLoginActivity(this, SPOTIFY_AUTH_REQUEST_CODE, request)
+    }
+    private val spotifyApiService: SpotifyWebApi by lazy {
+        val interceptor = okhttp3.logging.HttpLoggingInterceptor().apply {
+            level = okhttp3.logging.HttpLoggingInterceptor.Level.BODY
+        }
+
+        val client = okhttp3.OkHttpClient.Builder()
+            .addInterceptor(interceptor)
+            .addInterceptor { chain ->
+                // NOW we can call getSharedPreferences because we are inside the Activity!
+                val prefs = getSharedPreferences("LyriSyncPrefs", MODE_PRIVATE)
+                val token = prefs.getString("SPOTIFY_TOKEN", BuildConfig.myAccessToken)
+
+                val request = chain.request().newBuilder()
+                    .addHeader("Authorization", "Bearer $token")
+                    .build()
+                chain.proceed(request)
+            }
+            .build()
+
+        retrofit2.Retrofit.Builder()
+            .baseUrl("https://api.spotify.com/") // Fixed: use the real Spotify URL here
+            .client(client)
+            .addConverterFactory(retrofit2.converter.gson.GsonConverterFactory.create())
+            .build()
+            .create(SpotifyWebApi::class.java)
+    }
+    private val lrcService: LrcLibService by lazy {
+        retrofit2.Retrofit.Builder()
+            .baseUrl("https://lrclib.net/")
+            .client(customOkHttpClient)
+            .addConverterFactory(retrofit2.converter.gson.GsonConverterFactory.create())
+            .build()
+            .create(LrcLibService::class.java)
+    }
+    private val translationService: TranslationService by lazy {
+        retrofit2.Retrofit.Builder()
+            .baseUrl("https://translate.googleapis.com/")
+            .client(customOkHttpClient)
+            .addConverterFactory(retrofit2.converter.gson.GsonConverterFactory.create())
+            .build()
+            .create(TranslationService::class.java)
     }
 
     @SuppressLint("SetTextI18n", "NotifyDataSetChanged", "CutPasteId")
@@ -363,34 +419,35 @@ class MainActivity : AppCompatActivity() {
             R.id.radioAnkiExists to 1,
             R.id.radioAnkiStudied to 2
         )
-        sharedPrefs.edit { putInt("ANKI_MODE", sharedPrefs.getInt("ANKI_MODE", 0)) }
+        // Create a reverse map to find the ID based on the saved Index
         val ankiIndexToId = ankiIdToIndex.entries.associate { it.value to it.key }
 
-        // Load saved state (Default to 0: Show All)
+        // 1. LOAD AND SET SAVED UI STATE
+        val savedAnkiMode = sharedPrefs.getInt("ANKI_MODE", 0)
+        ankiIndexToId[savedAnkiMode]?.let { idToCheck ->
+            ankiRadioGroup.check(idToCheck)
+        }
+
+        // 2. SET THE LISTENER (Your existing logic)
         ankiRadioGroup.setOnCheckedChangeListener { _, checkedId ->
             val position = ankiIdToIndex[checkedId] ?: 0
             Log.i("LyriSync", "Anki mode changed: $position")
 
-            // If they selected an active Anki mode (1 or 2), check for runtime permission
             if (position != 0) {
                 val permission = "com.ichi2.anki.permission.READ_WRITE_DATABASE"
                 if (androidx.core.content.ContextCompat.checkSelfPermission(this, permission)
                     != android.content.pm.PackageManager.PERMISSION_GRANTED
                 ) {
-
-                    // We don't have permission yet, ask for it!
                     ankiPermissionLauncher.launch(permission)
-                    return@setOnCheckedChangeListener // Wait for the user to answer
+                    return@setOnCheckedChangeListener
                 }
             }
 
-            // If we get here, either we are turning it off (mode 0), or we already have permission
             sharedPrefs.edit {
                 putInt("ANKI_MODE", position)
                 putBoolean("REFRESH_LYRICS_REQUESTED", true)
             }
 
-            // Trigger an immediate refresh if lyrics are loaded
             lyricAdapter?.notifyDataSetChanged()
         }
 
@@ -960,6 +1017,14 @@ class MainActivity : AppCompatActivity() {
                                         )
                                     }
                                 }
+                            } else if (response.code() == 401) {
+                                if (!isRefreshingToken) {
+                                    isRefreshingToken = true
+                                    Log.d("Lyrisync", "401 Unauthorized. Pausing sync and opening Login.")
+                                    requestFreshSpotifyToken()
+                                }
+                            // KILL THE LOOP completely. We will restart it when the user finishes logging in.
+                                return@launch
                             } else if (response.code() == 429) {
                                 val retryAfterSeconds =
                                     response.headers()["Retry-After"]?.toIntOrNull() ?: 10

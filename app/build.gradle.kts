@@ -23,6 +23,14 @@ android {
         versionCode = 12
         versionName = "v0.46-dev"
 
+        manifestPlaceholders.putAll(
+            mapOf(
+                "redirectSchemeName" to "lyrisync",
+                "redirectHostName" to "callback",
+                "redirectPathPattern" to ""
+            )
+        )
+
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         buildConfigField("String", "SPOTIFY_CLIENT_ID", "\"${localProperties.getProperty("SPOTIFY_CLIENT_ID") ?: ""}\"")
@@ -101,4 +109,5 @@ dependencies {
     implementation("com.atilika.kuromoji:kuromoji-ipadic:0.9.0")
     implementation("com.squareup.okhttp3:logging-interceptor:4.11.0")
     implementation("com.github.ankidroid:Anki-Android:api-v1.1.0")
+    implementation("com.spotify.android:auth:4.0.1")
 }
