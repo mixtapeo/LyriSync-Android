@@ -389,8 +389,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="horizontal"
-                        android:gravity="center_vertical"
-                        android:paddingVertical="12dp">
+                        android:gravity="center_vertical">
                         <TextView
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
@@ -405,7 +404,44 @@
                             android:layout_height="wrap_content"
                             android:checked="false" />
                     </LinearLayout>
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="16dp"
+                        android:text="Anki Integration"
+                        android:textColor="@color/gray"
+                        android:textSize="16sp" />
 
+                    <RadioGroup
+                        android:id="@+id/ankiExcludeRadioGroup"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp">
+
+                        <RadioButton
+                            android:id="@+id/radioAnkiNone"
+                            android:layout_width="match_parent"
+                            android:layout_height="48dp"
+                            android:buttonTint="@color/brand_primary"
+                            android:text="Show All Words"
+                            android:textColor="#E0E0E0" />
+
+                        <RadioButton
+                            android:id="@+id/radioAnkiExists"
+                            android:layout_width="match_parent"
+                            android:layout_height="48dp"
+                            android:buttonTint="@color/brand_primary"
+                            android:text="Exclude if in Deck"
+                            android:textColor="#E0E0E0" />
+
+                        <RadioButton
+                            android:id="@+id/radioAnkiDue"
+                            android:layout_width="match_parent"
+                            android:layout_height="48dp"
+                            android:buttonTint="@color/brand_primary"
+                            android:text="Exclude if Due &lt; 2 Months"
+                            android:textColor="#E0E0E0" />
+                    </RadioGroup>
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/wipeHistoryButton"
                         style="@style/Widget.Material3.Button.TonalButton"

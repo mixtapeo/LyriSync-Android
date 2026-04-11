@@ -54,6 +54,7 @@ import kotlinx.coroutines.withContext
 import retrofit2.http.GET
 import androidx.room.Query as SqlQuery
 import retrofit2.http.Query as ApiQuery
+import android.net.Uri
 
 private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -228,6 +229,22 @@ class MainActivity : AppCompatActivity() {
     private var lastSdkPosition = -1L
     private var webApiProgressMs = -1L
     private var isWebPlaying = false
+    private val ankiPermissionLauncher = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+    ) { isGranted: Boolean ->
+        if (isGranted) {
+            Log.i("LyriSync", "Anki permission granted!")
+            Toast.makeText(this, "Anki sync enabled!", Toast.LENGTH_SHORT).show()
+        } else {
+            Log.w("LyriSync", "Anki permission denied.")
+            Toast.makeText(this, "Permission required for Anki sync.", Toast.LENGTH_LONG).show()
+
+            // Revert the setting to "Show All Words" if they deny it
+            val ankiRadioGroup = findViewById<RadioGroup>(R.id.ankiExcludeRadioGroup)
+            ankiRadioGroup.check(R.id.radioAnkiNone)
+            getSharedPreferences("LyriSyncPrefs", MODE_PRIVATE).edit { putInt("ANKI_MODE", 0) }
+        }
+    }
 
     @SuppressLint("SetTextI18n", "NotifyDataSetChanged", "CutPasteId")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -310,6 +327,44 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnGithub).setOnClickListener {
             val intent = Intent(Intent.ACTION_VIEW, "https://github.com/mixtapeo".toUri())
             startActivity(intent)
+        }
+
+        // --- Setup Anki Exclude Logic ---
+        val ankiRadioGroup = findViewById<RadioGroup>(R.id.ankiExcludeRadioGroup)
+
+        val ankiIdToIndex = mapOf(
+            R.id.radioAnkiNone to 0,
+            R.id.radioAnkiExists to 1,
+            R.id.radioAnkiDue to 2
+        )
+        val ankiIndexToId = ankiIdToIndex.entries.associate { it.value to it.key }
+
+        // Load saved state (Default to 0: Show All)
+        ankiRadioGroup.setOnCheckedChangeListener { _, checkedId ->
+            val position = ankiIdToIndex[checkedId] ?: 0
+            Log.i("LyriSync", "Anki mode changed: $position")
+
+            // If they selected an active Anki mode (1 or 2), check for runtime permission
+            if (position != 0) {
+                val permission = "com.ichi2.anki.permission.READ_WRITE_DATABASE"
+                if (androidx.core.content.ContextCompat.checkSelfPermission(this, permission)
+                    != android.content.pm.PackageManager.PERMISSION_GRANTED
+                ) {
+
+                    // We don't have permission yet, ask for it!
+                    ankiPermissionLauncher.launch(permission)
+                    return@setOnCheckedChangeListener // Wait for the user to answer
+                }
+            }
+
+            // If we get here, either we are turning it off (mode 0), or we already have permission
+            sharedPrefs.edit {
+                putInt("ANKI_MODE", position)
+                putBoolean("REFRESH_LYRICS_REQUESTED", true)
+            }
+
+            // Trigger an immediate refresh if lyrics are loaded
+            lyricAdapter?.notifyDataSetChanged()
         }
 
         // --- 1. SETUP MAIN CONTENT LISTS ---
@@ -759,7 +814,8 @@ class MainActivity : AppCompatActivity() {
                             if (timeSinceLastStaleCheck >= 2000) {
                                 timeSinceLastStaleCheck = 0 // Reset counter
 
-                                val isStale = isPlaying && currentSdkPos == lastSdkPosition && currentSdkPos > 0
+                                val isStale =
+                                    isPlaying && currentSdkPos == lastSdkPosition && currentSdkPos > 0
 
                                 if (isStale) {
                                     Log.w("Lyrisync", "SDK Frozen! Switching to Web API Fallback.")
@@ -791,7 +847,8 @@ class MainActivity : AppCompatActivity() {
                         timeSinceLastWebPoll = 0
 
                         try {
-                            val response = spotifyApiService.getPlaybackState("Bearer $myAccessToken")
+                            val response =
+                                spotifyApiService.getPlaybackState("Bearer $myAccessToken")
 
                             if (response.isSuccessful && response.body() != null) {
                                 val state = response.body()!!
@@ -803,17 +860,23 @@ class MainActivity : AppCompatActivity() {
                                         currentTrackUri = track.uri
                                         activeIndex = -1
                                         findViewById<TextView>(R.id.songTitleText).text = track.name
-                                        findViewById<TextView>(R.id.artistNameText).text = track.artists.firstOrNull()?.name ?: ""
-                                        fetchLyrics(track.name, track.artists.firstOrNull()?.name ?: "")
+                                        findViewById<TextView>(R.id.artistNameText).text =
+                                            track.artists.firstOrNull()?.name ?: ""
+                                        fetchLyrics(
+                                            track.name,
+                                            track.artists.firstOrNull()?.name ?: ""
+                                        )
                                     }
                                 }
                             } else if (response.code() == 429) {
-                                val retryAfterSeconds = response.headers()["Retry-After"]?.toIntOrNull() ?: 10
+                                val retryAfterSeconds =
+                                    response.headers()["Retry-After"]?.toIntOrNull() ?: 10
                                 Log.e("Lyrisync", "429 RATE LIMIT: Wait ${retryAfterSeconds}s.")
                                 timeSinceLastWebPoll = -(retryAfterSeconds * 1000) // Apply Penalty
 
                                 banner.text = "API Limit Hit. Pausing for ${retryAfterSeconds}s..."
-                                banner.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#D32F2F"))
+                                banner.backgroundTintList =
+                                    ColorStateList.valueOf(Color.parseColor("#D32F2F"))
                             }
                         } catch (e: Exception) {
                             Log.e("Lyrisync", "Web API Poll Failed: ${e.message}")
@@ -827,11 +890,16 @@ class MainActivity : AppCompatActivity() {
 
                                 // Does the SDK show active movement?
                                 if (isPlaying && sdkPos != lastSdkPosition && sdkPos > 0) {
-                                    Log.i("Lyrisync", "SDK woke up and is moving! Switching back to Local Mode.")
+                                    Log.i(
+                                        "Lyrisync",
+                                        "SDK woke up and is moving! Switching back to Local Mode."
+                                    )
                                     activeEngine = SyncEngine.SDK
-                                    timeSinceLastStaleCheck = 0 // Reset the Stale Check so it doesn't instantly fail
+                                    timeSinceLastStaleCheck =
+                                        0 // Reset the Stale Check so it doesn't instantly fail
 
-                                    if (banner.visibility == View.VISIBLE) banner.visibility = View.GONE
+                                    if (banner.visibility == View.VISIBLE) banner.visibility =
+                                        View.GONE
                                 }
                                 lastSdkPosition = sdkPos
                             }
@@ -1007,7 +1075,8 @@ class MainActivity : AppCompatActivity() {
 
                         if (hasKanji && textToTranslate.isNotEmpty()) {
                             // 2. Fetch the translation
-                            val translationResponse = translationService.getTranslation(q = fullJapaneseText)
+                            val translationResponse =
+                                translationService.getTranslation(q = fullJapaneseText)
                             Log.d("Lyrisync", "Translation service called + $translationResponse")
                             val bulkResult = extractTextFromGoogle(translationResponse)
                             val tempTranslations = bulkResult.split("\n")
@@ -1086,7 +1155,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    @SuppressLint("NotifyDataSetChanged")
+    @SuppressLint("NotifyDataSetChanged", "DirectSystemCurrentTimeMillisUsage")
     /*
     * Uses lexicological analyzer (kuromoji) to segement words -> underlines and coloring, furigana and translation fetch, and issue UI update
     * */
@@ -1099,6 +1168,7 @@ class MainActivity : AppCompatActivity() {
             jishoAdapter.notifyDataSetChanged()
         }
 
+        val ankiMode = getSharedPreferences("LyriSyncPrefs", MODE_PRIVATE).getInt("ANKI_MODE", 0)
         lifecycleScope.launch(Dispatchers.IO) {
             val dbLoadStart = System.currentTimeMillis()
             val db = AppDatabase.getDatabase(this@MainActivity)
@@ -1170,6 +1240,17 @@ class MainActivity : AppCompatActivity() {
                     }
 
                     if (entry != null) {
+                        // --- ANKI FILTER CHECK ---
+                        if (ankiMode != 0 && AnkiHelper.shouldExclude(
+                                this@MainActivity,
+                                baseForm,
+                                ankiMode
+                            )
+                        ) {
+                            // If it's in Anki (and meets the conditions), skip generating the definition card!
+                            lineReadings.add(token.reading ?: surface)
+                            continue
+                        }
                         // Highlight the word exactly as it appears in the lyric text
                         lineWords.add(surface)
 
@@ -1308,7 +1389,8 @@ class MainActivity : AppCompatActivity() {
                 val fullJapaneseText = textToTranslate.joinToString("\n")
 
                 if (fullJapaneseText.isNotBlank()) {
-                    val translationResponse = translationService.getTranslation(q = fullJapaneseText)
+                    val translationResponse =
+                        translationService.getTranslation(q = fullJapaneseText)
                     val bulkResult = extractTextFromGoogle(translationResponse)
                     val tempTranslations = bulkResult.split("\n")
 
@@ -1551,4 +1633,99 @@ class SearchAdapter(
     }
 
     override fun getItemCount() = results.size
+}
+
+object AnkiHelper {
+    private val NOTES_URI = Uri.parse("content://com.ichi2.anki.flashcards/notes")
+    private val CARDS_URI = Uri.parse("content://com.ichi2.anki.flashcards/cards")
+
+    @SuppressLint("Range")
+    fun shouldExclude(context: Context, word: String, mode: Int): Boolean {
+        if (mode == 0) return false
+
+        // 1. Check if we actually have permission before querying to prevent crashes
+        if (androidx.core.content.ContextCompat.checkSelfPermission(
+                context,
+                "com.ichi2.anki.permission.READ_WRITE_DATABASE"
+            )
+            != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            Log.w("Lyrisync", "Anki permission missing. Cannot filter words.")
+            return false
+        }
+
+        var noteId: Long = -1
+
+        try {
+            val cleanWord = word.trim()
+
+            // 1. USE ANKI SEARCH SYNTAX, NOT SQL!
+            // Wrapping in escaped quotes tells Anki to look for this exact word.
+            // If you only want to search the Sort Field, change this to: "sfld:\"$cleanWord\""
+            val ankiSearchQuery = "\"$cleanWord\""
+
+            // 2. Query Anki
+            val cursor = context.contentResolver.query(
+                NOTES_URI,
+                arrayOf("_id"), // We only need the ID to know it exists
+                ankiSearchQuery, // Pass the Anki search string here
+                null, // selectionArgs MUST be null for AnkiDroid
+                null
+            )
+
+            if (cursor != null) {
+                cursor.use {
+                    if (it.moveToFirst()) {
+                        noteId = it.getLong(it.getColumnIndexOrThrow("_id"))
+                        Log.d("Lyrisync", "SUCCESS! Found [$cleanWord] in Anki! Note ID: $noteId")
+                    } else {
+                        Log.d("Lyrisync", "Word [$cleanWord] is not in Anki.")
+                    }
+                }
+            }
+        } catch (e: android.database.sqlite.SQLiteException) {
+            // If a word is a single highly common character (like "の") and matches
+            // >999 cards, AnkiDroid will crash. We catch it safely and ignore the word.
+            Log.w("Lyrisync", "Word [$word] matched too many cards in Anki. Skipping.", e)
+            return false
+        } catch (e: Exception) {
+            Log.e("Lyrisync", "General Anki query error.", e)
+            return false
+        }
+
+        if (noteId == -1L) return false
+        if (mode == 1) return true
+
+        // Mode 2: Exclude if actively learning/reviewing
+        if (mode == 2) {
+            try {
+                val cursor = context.contentResolver.query(
+                    CARDS_URI,
+                    arrayOf("due", "type", "queue"),
+                    "nid = ?",
+                    arrayOf(noteId.toString()),
+                    null
+                )
+                cursor?.use {
+                    if (it.moveToFirst()) {
+                        // 4. Use getColumnIndexOrThrow to ensure we have the exact column name
+                        val idIndex = it.getColumnIndexOrThrow("_id")
+                        noteId = it.getLong(idIndex)
+
+                        val fields = it.getString(it.getColumnIndexOrThrow("flds"))
+                        Log.d("Lyrisync", "Found Note ID $noteId! Raw fields data: $fields")
+                    } else {
+                        Log.d(
+                            "Lyrisync",
+                            "moveToFirst() was false. Word is definitely not in Anki."
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("Lyrisync", "Error checking Anki card status", e)
+                return false
+            }
+        }
+        return false
+    }
 }

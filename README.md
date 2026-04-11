@@ -44,5 +44,9 @@ For this reason, db is pushed to RAM to allow fast querying
 - x big box around one line of words to group those
 - x add a "non Japanese threshold" where if > than amount of not japanese in a song, treat as non translation
 
+## Credits
+https://github.com/ankidroid/Anki-Android/wiki/AnkiDroid-API - AnkiDroid API
+Kuromoji
+
 ## License
 Project uses GNU General Public License v3.0

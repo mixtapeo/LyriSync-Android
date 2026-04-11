@@ -20,8 +20,8 @@ android {
         applicationId = "com.mixtapeo.lyrisync"
         minSdk = 24
         targetSdk = 36
-        versionCode = 11
-        versionName = "v0.45-hotfix"
+        versionCode = 12
+        versionName = "v0.46-dev"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -100,4 +100,5 @@ dependencies {
     implementation(libs.coil)
     implementation("com.atilika.kuromoji:kuromoji-ipadic:0.9.0")
     implementation("com.squareup.okhttp3:logging-interceptor:4.11.0")
+    implementation("com.github.ankidroid:Anki-Android:api-v1.1.0")
 }
