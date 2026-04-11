@@ -435,11 +435,11 @@
                             android:textColor="#E0E0E0" />
 
                         <RadioButton
-                            android:id="@+id/radioAnkiDue"
+                            android:id="@+id/radioAnkiStudied"
                             android:layout_width="match_parent"
                             android:layout_height="48dp"
                             android:buttonTint="@color/brand_primary"
-                            android:text="Exclude if Due &lt; 2 Months"
+                            android:text="Exclude if Previously Studied"
                             android:textColor="#E0E0E0" />
                     </RadioGroup>
                     <com.google.android.material.button.MaterialButton

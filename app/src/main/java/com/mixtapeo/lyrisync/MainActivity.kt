@@ -335,7 +335,7 @@ class MainActivity : AppCompatActivity() {
         val ankiIdToIndex = mapOf(
             R.id.radioAnkiNone to 0,
             R.id.radioAnkiExists to 1,
-            R.id.radioAnkiDue to 2
+            R.id.radioAnkiStudied to 2
         )
         val ankiIndexToId = ankiIdToIndex.entries.associate { it.value to it.key }
 
@@ -1637,95 +1637,58 @@ class SearchAdapter(
 
 object AnkiHelper {
     private val NOTES_URI = Uri.parse("content://com.ichi2.anki.flashcards/notes")
-    private val CARDS_URI = Uri.parse("content://com.ichi2.anki.flashcards/cards")
 
     @SuppressLint("Range")
     fun shouldExclude(context: Context, word: String, mode: Int): Boolean {
+        // Mode 0: Show all words (don't exclude anything)
         if (mode == 0) return false
 
-        // 1. Check if we actually have permission before querying to prevent crashes
-        if (androidx.core.content.ContextCompat.checkSelfPermission(
-                context,
-                "com.ichi2.anki.permission.READ_WRITE_DATABASE"
-            )
-            != android.content.pm.PackageManager.PERMISSION_GRANTED
-        ) {
+        // Safety check for permissions
+        if (androidx.core.content.ContextCompat.checkSelfPermission(context, "com.ichi2.anki.permission.READ_WRITE_DATABASE")
+            != android.content.pm.PackageManager.PERMISSION_GRANTED) {
             Log.w("Lyrisync", "Anki permission missing. Cannot filter words.")
             return false
         }
 
-        var noteId: Long = -1
-
         try {
             val cleanWord = word.trim()
 
-            // 1. USE ANKI SEARCH SYNTAX, NOT SQL!
-            // Wrapping in escaped quotes tells Anki to look for this exact word.
-            // If you only want to search the Sort Field, change this to: "sfld:\"$cleanWord\""
-            val ankiSearchQuery = "\"$cleanWord\""
+            // --- THE MAGIC: Anki Native Search Syntax ---
+            // Mode 1: "\"word\"" -> Excludes if it exists at all.
+            // Mode 2: "\"word\" -is:new" -> Excludes ONLY if it exists AND is not a brand new card.
+            val ankiSearchQuery = if (mode == 1) {
+                "\"$cleanWord\""
+            } else {
+                "\"$cleanWord\" -is:new"
+            }
 
-            // 2. Query Anki
+            // We only make ONE query to the notes table
             val cursor = context.contentResolver.query(
                 NOTES_URI,
-                arrayOf("_id"), // We only need the ID to know it exists
-                ankiSearchQuery, // Pass the Anki search string here
-                null, // selectionArgs MUST be null for AnkiDroid
+                arrayOf("_id"), // Just need the ID to confirm it exists
+                ankiSearchQuery,
+                null,
                 null
             )
-
+//            Log.d("Lyrisync", "Query: $ankiSearchQuery")
             if (cursor != null) {
                 cursor.use {
                     if (it.moveToFirst()) {
-                        noteId = it.getLong(it.getColumnIndexOrThrow("_id"))
-                        Log.d("Lyrisync", "SUCCESS! Found [$cleanWord] in Anki! Note ID: $noteId")
+                        val noteId = it.getLong(it.getColumnIndexOrThrow("_id"))
+                        Log.d("Lyrisync", "Excluding [$cleanWord]! Match found for query: $ankiSearchQuery (Note ID: $noteId)")
+                        return true // Exclude it!
                     } else {
-                        Log.d("Lyrisync", "Word [$cleanWord] is not in Anki.")
+                        Log.d("Lyrisync", "Keeping [$cleanWord]. No match found for query: $ankiSearchQuery")
+                        return false // Keep it!
                     }
                 }
             }
         } catch (e: android.database.sqlite.SQLiteException) {
-            // If a word is a single highly common character (like "の") and matches
-            // >999 cards, AnkiDroid will crash. We catch it safely and ignore the word.
             Log.w("Lyrisync", "Word [$word] matched too many cards in Anki. Skipping.", e)
-            return false
         } catch (e: Exception) {
             Log.e("Lyrisync", "General Anki query error.", e)
-            return false
         }
 
-        if (noteId == -1L) return false
-        if (mode == 1) return true
-
-        // Mode 2: Exclude if actively learning/reviewing
-        if (mode == 2) {
-            try {
-                val cursor = context.contentResolver.query(
-                    CARDS_URI,
-                    arrayOf("due", "type", "queue"),
-                    "nid = ?",
-                    arrayOf(noteId.toString()),
-                    null
-                )
-                cursor?.use {
-                    if (it.moveToFirst()) {
-                        // 4. Use getColumnIndexOrThrow to ensure we have the exact column name
-                        val idIndex = it.getColumnIndexOrThrow("_id")
-                        noteId = it.getLong(idIndex)
-
-                        val fields = it.getString(it.getColumnIndexOrThrow("flds"))
-                        Log.d("Lyrisync", "Found Note ID $noteId! Raw fields data: $fields")
-                    } else {
-                        Log.d(
-                            "Lyrisync",
-                            "moveToFirst() was false. Word is definitely not in Anki."
-                        )
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e("Lyrisync", "Error checking Anki card status", e)
-                return false
-            }
-        }
         return false
     }
 }
