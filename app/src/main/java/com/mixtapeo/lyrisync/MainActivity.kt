@@ -58,6 +58,11 @@ import android.net.Uri
 
 private val mainHandler = Handler(Looper.getMainLooper())
 
+data class HighlightSpan(
+    val start: Int,
+    val end: Int,
+    val wordIndex: Int // Keeps the color synced with the JishoBox!
+)
 
 data class SpotifyPlaybackResponse(
     val is_playing: Boolean,
@@ -235,6 +240,7 @@ class MainActivity : AppCompatActivity() {
         if (isGranted) {
             Log.i("LyriSync", "Anki permission granted!")
             Toast.makeText(this, "Anki sync enabled!", Toast.LENGTH_SHORT).show()
+            populateAnkiDecks()
         } else {
             Log.w("LyriSync", "Anki permission denied.")
             Toast.makeText(this, "Permission required for Anki sync.", Toast.LENGTH_LONG).show()
@@ -337,6 +343,7 @@ class MainActivity : AppCompatActivity() {
             R.id.radioAnkiExists to 1,
             R.id.radioAnkiStudied to 2
         )
+        sharedPrefs.edit { putInt("ANKI_MODE", sharedPrefs.getInt("ANKI_MODE", 0)) }
         val ankiIndexToId = ankiIdToIndex.entries.associate { it.value to it.key }
 
         // Load saved state (Default to 0: Show All)
@@ -367,6 +374,37 @@ class MainActivity : AppCompatActivity() {
             lyricAdapter?.notifyDataSetChanged()
         }
 
+        val ankiDeckSpinner = findViewById<android.widget.Spinner>(R.id.ankiDeckSpinner)
+
+        // 1. Initial Load: Populate decks immediately if we already have permission
+        if (androidx.core.content.ContextCompat.checkSelfPermission(
+                this,
+                "com.ichi2.anki.permission.READ_WRITE_DATABASE"
+            )
+            == android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            populateAnkiDecks()
+        }
+
+        // 2. Listen for User Selection
+        ankiDeckSpinner.onItemSelectedListener =
+            object : android.widget.AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(
+                    parent: android.widget.AdapterView<*>?,
+                    view: View?,
+                    position: Int,
+                    id: Long
+                ) {
+                    val selectedDeck = parent?.getItemAtPosition(position).toString()
+                    sharedPrefs.edit { putString("ANKI_DECK", selectedDeck) }
+
+                    // Optional: Change the text color to white so it looks good on dark theme
+                    (view as? TextView)?.setTextColor(Color.WHITE)
+                }
+
+                override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
+            }
+
         // --- 1. SETUP MAIN CONTENT LISTS ---
         val recyclerView = findViewById<RecyclerView>(R.id.lyricRecyclerView)
         val snapHelper = androidx.recyclerview.widget.LinearSnapHelper()
@@ -383,22 +421,36 @@ class MainActivity : AppCompatActivity() {
         jishoRv.layoutManager = androidx.recyclerview.widget.LinearLayoutManager(this)
 
         // setup text size buttons
-        val textSizeSlider =
-            findViewById<com.google.android.material.slider.Slider>(R.id.textSizeSlider)
+        val textSizeSlider = findViewById<com.google.android.material.slider.Slider>(R.id.textSizeSlider)
+        val previewLyric = findViewById<TextView>(R.id.previewLyric)
+        val previewFurigana = findViewById<TextView>(R.id.previewFurigana)
+        val previewTranslation = findViewById<TextView>(R.id.previewTranslation)
 
         // Load saved text sizes
-        val savedTextSize = sharedPrefs.getFloat("TEXT_SIZE", 16f)
+        val savedTextSize = sharedPrefs.getFloat("TEXT_SIZE", 4f)
+
+        // --- FIX 1: DO THE PROPER MATH ON STARTUP ---
+        val initialBaseSize = 18f + savedTextSize
+        val initialFuriganaSize = initialBaseSize * 0.5f
+        val initialTranslationSize = initialBaseSize * 0.65f
 
         // Initialize Sliders
         textSizeSlider.value = savedTextSize
 
-        // Initialize Adapter
-        lyricAdapter?.textSize = savedTextSize
+        // Initialize Previews
+        previewLyric.setTextSize(TypedValue.COMPLEX_UNIT_SP, initialBaseSize)
+        previewFurigana.setTextSize(TypedValue.COMPLEX_UNIT_SP, initialFuriganaSize)
+        previewTranslation.setTextSize(TypedValue.COMPLEX_UNIT_SP, initialTranslationSize)
 
-        // Listeners for sliders
-        val previewLyric = findViewById<TextView>(R.id.previewLyric)
+        // Initialize Adapter safely
+        lyricAdapter?.apply {
+            textSize = initialBaseSize
+            furiganaSize = initialFuriganaSize
+            translationSize = initialTranslationSize
+        }
 
         textSizeSlider.addOnChangeListener { _, value, _ ->
+            sharedPrefs.edit { putFloat("TEXT_SIZE", value) }
             // 1. Calculate the base size
             val baseSize = 18f + value // value 0..32 results in 18sp..50sp
 
@@ -408,13 +460,15 @@ class MainActivity : AppCompatActivity() {
 
             // 3. Update the Preview Cards (to show the user what's happening)
             previewLyric.setTextSize(TypedValue.COMPLEX_UNIT_SP, baseSize)
+            previewFurigana.setTextSize(TypedValue.COMPLEX_UNIT_SP, furiganaSize)
+            previewTranslation.setTextSize(TypedValue.COMPLEX_UNIT_SP, translationSize)
 
             // 4. Update the actual RecyclerView Adapter
-            lyricAdapter.apply {
-                this?.textSize = baseSize
-                this?.furiganaSize = furiganaSize
-                this?.translationSize = translationSize
-                this!!.notifyDataSetChanged()
+            lyricAdapter?.apply {
+                this.textSize = baseSize
+                this.furiganaSize = furiganaSize
+                this.translationSize = translationSize
+                notifyDataSetChanged()
             }
         }
 
@@ -697,6 +751,23 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun populateAnkiDecks() {
+        val ankiDeckSpinner = findViewById<android.widget.Spinner>(R.id.ankiDeckSpinner)
+        val sharedPrefs = getSharedPreferences("LyriSyncPrefs", Context.MODE_PRIVATE)
+
+        val decks = AnkiHelper.getDeckList(this)
+        val adapter =
+            android.widget.ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, decks)
+        ankiDeckSpinner.adapter = adapter
+
+        // Restore the user's previously saved deck selection
+        val savedDeck = sharedPrefs.getString("ANKI_DECK", "All Decks")
+        val position = decks.indexOf(savedDeck)
+        if (position >= 0) {
+            ankiDeckSpinner.setSelection(position)
+        }
+    }
+
     override fun onStart() {
         super.onStart()
         val sharedPrefs = getSharedPreferences("LyriSyncPrefs", MODE_PRIVATE)
@@ -878,10 +949,19 @@ class MainActivity : AppCompatActivity() {
                                 banner.backgroundTintList =
                                     ColorStateList.valueOf(Color.parseColor("#D32F2F"))
                             }
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            // ALWAYS rethrow CancellationException in coroutines, or they won't cancel properly!
+                            throw e
+                        } catch (e: java.net.SocketException) {
+                            // This happens when the coroutine is cancelled mid-flight or network drops.
+                            // It is totally normal. Just log it and let the loop try again next time.
+                            Log.w("Lyrisync", "Socket closed. Web API request cancelled or network dropped.")
+                        } catch (e: java.io.IOException) {
+                            // Catches general network timeouts and offline issues
+                            Log.w("Lyrisync", "Network error during Web API poll: ${e.message}")
                         } catch (e: Exception) {
                             Log.e("Lyrisync", "Web API Poll Failed: ${e.message}")
                         }
-
                         // 2. RECOVERY CHECK: Can we switch back to the SDK?
                         if (isSdkConnected) {
                             spotifyAppRemote?.playerApi?.playerState?.setResultCallback { playerState ->
@@ -1117,7 +1197,16 @@ class MainActivity : AppCompatActivity() {
                             findViewById<TextView>(R.id.NoLyricsText).visibility = View.VISIBLE
                         }
                     }
-
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: java.net.SocketException) {
+                    Log.w("Lyrisync", "Lyrics fetch cancelled (Socket closed).")
+                } catch (e: java.io.IOException) {
+                    Log.e("Lyrisync", "Network error fetching lyrics.", e)
+                    withContext(Dispatchers.Main) {
+                        findViewById<ProgressBar>(R.id.loadingCircle).visibility = View.GONE
+                        // Optionally show a "Network Error" Toast here
+                    }
                 } catch (e: Exception) {
                     Log.e("Lyrisync", "Fetch failed: ${e.message}", e)
                     withContext(Dispatchers.Main) {
@@ -1169,6 +1258,9 @@ class MainActivity : AppCompatActivity() {
         }
 
         val ankiMode = getSharedPreferences("LyriSyncPrefs", MODE_PRIVATE).getInt("ANKI_MODE", 0)
+        val ankiDeck =
+            getSharedPreferences("LyriSyncPrefs", MODE_PRIVATE).getString("ANKI_DECK", "All Decks")
+                ?: "All Decks" // <-- Add this!
         lifecycleScope.launch(Dispatchers.IO) {
             val dbLoadStart = System.currentTimeMillis()
             val db = AppDatabase.getDatabase(this@MainActivity)
@@ -1184,7 +1276,7 @@ class MainActivity : AppCompatActivity() {
             )
 
             val furiganaLyrics = mutableListOf<String>()
-            val highlightsList = mutableListOf<List<String>>()
+            val highlightsList = mutableListOf<List<HighlightSpan>>()
 
             preparedLineSets.clear()
             songDictionary.clear()
@@ -1204,7 +1296,7 @@ class MainActivity : AppCompatActivity() {
                     continue
                 }
 
-                val lineWords = mutableListOf<String>()
+                val lineHighlights = mutableListOf<HighlightSpan>()
                 val lineReadings = mutableListOf<String>()
                 val lineJishoWords = mutableListOf<JishoWord>()
                 var wordIndex = 0
@@ -1238,55 +1330,56 @@ class MainActivity : AppCompatActivity() {
                         queryCache[baseForm] = dbResult
                         dbResult
                     }
-
                     if (entry != null) {
-                        // --- ANKI FILTER CHECK ---
-                        if (ankiMode != 0 && AnkiHelper.shouldExclude(
-                                this@MainActivity,
-                                baseForm,
-                                ankiMode
-                            )
-                        ) {
-                            // If it's in Anki (and meets the conditions), skip generating the definition card!
-                            lineReadings.add(token.reading ?: surface)
-                            continue
-                        }
-                        // Highlight the word exactly as it appears in the lyric text
-                        lineWords.add(surface)
+                        // 1. Check Anki Status First
+                        val isExcludedByAnki = ankiMode != 0 && AnkiHelper.shouldExclude(this@MainActivity, baseForm, ankiMode, ankiDeck)
 
-                        // Prefer DB reading for proper Hiragana format, fallback to Kuromoji reading (Katakana), then surface
+                        // 2. ALWAYS apply the highlight coordinates (so it stays colored in the lyrics!)
+                        val startPos = token.position
+                        val endPos = startPos + surface.length
+                        lineHighlights.add(HighlightSpan(startPos, endPos, wordIndex))
+
+                        Log.d("Lyrisync-Color", "Generated span for [${surface}]: Start $startPos, End $endPos")
+
+                        // 3. ALWAYS grab the proper Furigana reading from the database
                         val reading = entry.reading ?: token.reading ?: surface
                         lineReadings.add(reading)
 
-                        val definitionText = entry.definition
-                        if (!definitionText.isNullOrBlank()) {
-                            if (!songDictionary.containsKey(baseForm)) {
-                                val spannable = android.text.SpannableStringBuilder()
-                                val displayReading = entry.reading ?: baseForm
-                                spannable.append("【 $baseForm 】 ($displayReading)\n→ $definitionText\n\n")
-                                songDictionary[baseForm] = spannable
-                            }
+                        // 4. ONLY build the definition box if Anki didn't exclude it
+                        if (!isExcludedByAnki) {
+                            val definitionText = entry.definition
+                            if (!definitionText.isNullOrBlank()) {
+                                if (!songDictionary.containsKey(baseForm)) {
+                                    val spannable = android.text.SpannableStringBuilder()
+                                    val displayReading = entry.reading ?: baseForm
+                                    spannable.append("【 $baseForm 】 ($displayReading)\n→ $definitionText\n\n")
+                                    songDictionary[baseForm] = spannable
+                                }
 
-                            songDictionary[baseForm]?.let { formatted ->
-                                lineJishoWords.add(
-                                    JishoWord(
-                                        baseForm,
-                                        reading,
-                                        definitionText,
-                                        formatted,
-                                        wordIndex
+                                songDictionary[baseForm]?.let { formatted ->
+                                    lineJishoWords.add(
+                                        JishoWord(
+                                            baseForm,
+                                            reading,
+                                            definitionText,
+                                            formatted,
+                                            wordIndex
+                                        )
                                     )
-                                )
+                                }
                             }
-                            wordIndex++
                         }
+
+                        // 5. ALWAYS increment the color index so the next word gets a new color
+                        wordIndex++
+
                     } else {
                         // Word is valid but not in your DB, just append its reading for Furigana
                         lineReadings.add(token.reading ?: surface)
                     }
                 }
 
-                highlightsList.add(lineWords)
+                highlightsList.add(lineHighlights)
                 furiganaLyrics.add(lineReadings.joinToString(" • "))
 
                 if (lineJishoWords.isNotEmpty()) {
@@ -1637,15 +1730,52 @@ class SearchAdapter(
 
 object AnkiHelper {
     private val NOTES_URI = Uri.parse("content://com.ichi2.anki.flashcards/notes")
+    private val DECKS_URI = Uri.parse("content://com.ichi2.anki.flashcards/decks")
+    fun getDeckList(context: Context): List<String> {
+        val decks = mutableListOf("All Decks") // Default option
+
+        if (androidx.core.content.ContextCompat.checkSelfPermission(
+                context,
+                "com.ichi2.anki.permission.READ_WRITE_DATABASE"
+            )
+            != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            return decks // Return just "All Decks" if we don't have permission yet
+        }
+
+        try {
+            val cursor = context.contentResolver.query(
+                DECKS_URI,
+                arrayOf("name"), // We only need the deck name
+                null,
+                null,
+                "name COLLATE NOCASE ASC" // Alphabetical sort
+            )
+
+            cursor?.use {
+                val nameIndex = it.getColumnIndexOrThrow("name")
+                while (it.moveToNext()) {
+                    decks.add(it.getString(nameIndex))
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("Lyrisync", "Failed to fetch Anki decks", e)
+        }
+        return decks
+    }
 
     @SuppressLint("Range")
-    fun shouldExclude(context: Context, word: String, mode: Int): Boolean {
+    fun shouldExclude(context: Context, word: String, mode: Int, deckName: String): Boolean {
         // Mode 0: Show all words (don't exclude anything)
         if (mode == 0) return false
 
         // Safety check for permissions
-        if (androidx.core.content.ContextCompat.checkSelfPermission(context, "com.ichi2.anki.permission.READ_WRITE_DATABASE")
-            != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+        if (androidx.core.content.ContextCompat.checkSelfPermission(
+                context,
+                "com.ichi2.anki.permission.READ_WRITE_DATABASE"
+            )
+            != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
             Log.w("Lyrisync", "Anki permission missing. Cannot filter words.")
             return false
         }
@@ -1656,10 +1786,10 @@ object AnkiHelper {
             // --- THE MAGIC: Anki Native Search Syntax ---
             // Mode 1: "\"word\"" -> Excludes if it exists at all.
             // Mode 2: "\"word\" -is:new" -> Excludes ONLY if it exists AND is not a brand new card.
-            val ankiSearchQuery = if (mode == 1) {
-                "\"$cleanWord\""
-            } else {
-                "\"$cleanWord\" -is:new"
+            val ankiSearchQuery = buildString {
+                append("\"$cleanWord\"") // 1. Always look for the exact word
+                if (mode == 2) append(" -is:new") // 2. Add 'studied' filter if Mode 2
+                if (deckName != "All Decks") append(" deck:\"$deckName\"") // 3. Add deck filter if selected
             }
 
             // We only make ONE query to the notes table
@@ -1675,10 +1805,16 @@ object AnkiHelper {
                 cursor.use {
                     if (it.moveToFirst()) {
                         val noteId = it.getLong(it.getColumnIndexOrThrow("_id"))
-                        Log.d("Lyrisync", "Excluding [$cleanWord]! Match found for query: $ankiSearchQuery (Note ID: $noteId)")
+                        Log.d(
+                            "Lyrisync",
+                            "Excluding [$cleanWord]! Match found for query: $ankiSearchQuery (Note ID: $noteId)"
+                        )
                         return true // Exclude it!
                     } else {
-                        Log.d("Lyrisync", "Keeping [$cleanWord]. No match found for query: $ankiSearchQuery")
+                        Log.d(
+                            "Lyrisync",
+                            "Keeping [$cleanWord]. No match found for query: $ankiSearchQuery"
+                        )
                         return false // Keep it!
                     }
                 }

@@ -442,6 +442,20 @@
                             android:text="Exclude if Previously Studied"
                             android:textColor="#E0E0E0" />
                     </RadioGroup>
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="16dp"
+                        android:text="Target Anki Deck"
+                        android:textColor="@color/gray"
+                        android:textSize="14sp" />
+
+                    <Spinner
+                        android:id="@+id/ankiDeckSpinner"
+                        android:layout_width="match_parent"
+                        android:layout_height="48dp"
+                        android:layout_marginTop="4dp"
+                        android:backgroundTint="@color/brand_primary" />
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/wipeHistoryButton"
                         style="@style/Widget.Material3.Button.TonalButton"
