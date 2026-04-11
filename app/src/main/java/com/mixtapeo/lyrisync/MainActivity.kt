@@ -55,6 +55,10 @@ import retrofit2.http.GET
 import androidx.room.Query as SqlQuery
 import retrofit2.http.Query as ApiQuery
 import android.net.Uri
+import java.util.concurrent.TimeUnit
+import kotlin.collections.toTypedArray
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 
 private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -103,6 +107,14 @@ private val spotifyApiService: SpotifyWebApi by lazy {
         .addConverterFactory(retrofit2.converter.gson.GsonConverterFactory.create())
         .build()
         .create(SpotifyWebApi::class.java)
+}
+
+private val customOkHttpClient: okhttp3.OkHttpClient by lazy {
+    okhttp3.OkHttpClient.Builder()
+        .connectTimeout(30, TimeUnit.SECONDS) // Time to establish the connection
+        .readTimeout(30, TimeUnit.SECONDS)    // Time to wait for the next byte of data
+        .writeTimeout(30, TimeUnit.SECONDS)   // Time to wait while sending data
+        .build()
 }
 
 data class LrcResponse(
@@ -194,17 +206,25 @@ abstract class AppDatabase : RoomDatabase() {
 }
 
 private val lrcService: LrcLibService by lazy {
-    retrofit2.Retrofit.Builder().baseUrl("https://lrclib.net/")
-        .addConverterFactory(retrofit2.converter.gson.GsonConverterFactory.create()).build()
+    retrofit2.Retrofit.Builder()
+        .baseUrl("https://lrclib.net/")
+        .client(customOkHttpClient)
+        .addConverterFactory(retrofit2.converter.gson.GsonConverterFactory.create())
+        .build()
         .create(LrcLibService::class.java)
 }
 private val translationService: TranslationService by lazy {
-    retrofit2.Retrofit.Builder().baseUrl("https://translate.googleapis.com/")
-        .addConverterFactory(retrofit2.converter.gson.GsonConverterFactory.create()).build()
+    retrofit2.Retrofit.Builder()
+        .baseUrl("https://translate.googleapis.com/")
+        .client(customOkHttpClient)
+        .addConverterFactory(retrofit2.converter.gson.GsonConverterFactory.create())
+        .build()
         .create(TranslationService::class.java)
 }
 private val queryCache = mutableMapOf<String, JishoEntry?>()
+private val globalAnkiCache = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
 private val jpCharacterRegex = Regex("[\\u3040-\\u30ff\\u4e00-\\u9faf]")
+val ankiCache = mutableMapOf<String, Boolean>()
 
 class MainActivity : AppCompatActivity() {
     private val clientId = BuildConfig.SPOTIFY_CLIENT_ID
@@ -421,7 +441,8 @@ class MainActivity : AppCompatActivity() {
         jishoRv.layoutManager = androidx.recyclerview.widget.LinearLayoutManager(this)
 
         // setup text size buttons
-        val textSizeSlider = findViewById<com.google.android.material.slider.Slider>(R.id.textSizeSlider)
+        val textSizeSlider =
+            findViewById<com.google.android.material.slider.Slider>(R.id.textSizeSlider)
         val previewLyric = findViewById<TextView>(R.id.previewLyric)
         val previewFurigana = findViewById<TextView>(R.id.previewFurigana)
         val previewTranslation = findViewById<TextView>(R.id.previewTranslation)
@@ -955,7 +976,10 @@ class MainActivity : AppCompatActivity() {
                         } catch (e: java.net.SocketException) {
                             // This happens when the coroutine is cancelled mid-flight or network drops.
                             // It is totally normal. Just log it and let the loop try again next time.
-                            Log.w("Lyrisync", "Socket closed. Web API request cancelled or network dropped.")
+                            Log.w(
+                                "Lyrisync",
+                                "Socket closed. Web API request cancelled or network dropped."
+                            )
                         } catch (e: java.io.IOException) {
                             // Catches general network timeouts and offline issues
                             Log.w("Lyrisync", "Network error during Web API poll: ${e.message}")
@@ -1283,6 +1307,55 @@ class MainActivity : AppCompatActivity() {
             queryCache.clear()
 
             val jpCharacterRegex = Regex("[\\u3040-\\u30ff\\u4e00-\\u9faf]")
+            // --- 1. THE PARALLEL ANKI BLAST ---
+            if (ankiMode != 0) {
+                val uniqueWords = mutableSetOf<String>()
+
+                // Scan the song for unique Japanese words
+                for (line in lyrics) {
+                    if (line.text.isNotBlank() && line.text != "...") {
+                        tokenizer.tokenize(line.text).forEach { token ->
+                            val baseForm = token.baseForm ?: token.surface
+                            if (token.partOfSpeechLevel1 != "記号" && baseForm.contains(
+                                    jpCharacterRegex
+                                )
+                            ) {
+                                uniqueWords.add(baseForm)
+                            }
+                        }
+                    }
+                }
+
+                // Find words we haven't asked Anki about yet
+                val wordsToFetch = uniqueWords.filter { !globalAnkiCache.containsKey(it) }
+
+                if (wordsToFetch.isNotEmpty()) {
+                    Log.d(
+                        "Lyrisync",
+                        "Parallel fetching ${wordsToFetch.size} new words from Anki..."
+                    )
+                    val ankiFetchStart = System.currentTimeMillis()
+
+                    // Blast Anki with concurrent requests using coroutines!
+                    val deferreds = wordsToFetch.map { word ->
+                        async(Dispatchers.IO) { // <-- Removed prefix
+                            val excluded = AnkiHelper.shouldExclude(
+                                this@MainActivity,
+                                word,
+                                ankiMode,
+                                ankiDeck
+                            )
+                            globalAnkiCache[word] = excluded
+                        }
+                    }
+                    deferreds.awaitAll()
+
+                    Log.d(
+                        "Lyrisync",
+                        "Parallel Anki blast finished in ${System.currentTimeMillis() - ankiFetchStart}ms!"
+                    )
+                }
+            }
             val loopStart = System.currentTimeMillis()
 
             for ((index, line) in lyrics.withIndex()) {
@@ -1332,14 +1405,22 @@ class MainActivity : AppCompatActivity() {
                     }
                     if (entry != null) {
                         // 1. Check Anki Status First
-                        val isExcludedByAnki = ankiMode != 0 && AnkiHelper.shouldExclude(this@MainActivity, baseForm, ankiMode, ankiDeck)
+                        // --- 2. INSTANT CACHE LOOKUP ---
+                        val isExcludedByAnki = if (ankiMode != 0) {
+                            globalAnkiCache[baseForm] ?: false
+                        } else {
+                            false
+                        }
 
-                        // 2. ALWAYS apply the highlight coordinates (so it stays colored in the lyrics!)
+                        // 2. ALWAYS apply the highlight coordinates
                         val startPos = token.position
                         val endPos = startPos + surface.length
                         lineHighlights.add(HighlightSpan(startPos, endPos, wordIndex))
 
-                        Log.d("Lyrisync-Color", "Generated span for [${surface}]: Start $startPos, End $endPos")
+                        Log.d(
+                            "Lyrisync-Color",
+                            "Generated span for [${surface}]: Start $startPos, End $endPos"
+                        )
 
                         // 3. ALWAYS grab the proper Furigana reading from the database
                         val reading = entry.reading ?: token.reading ?: surface
