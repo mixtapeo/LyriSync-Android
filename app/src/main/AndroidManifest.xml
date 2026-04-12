@@ -9,6 +9,7 @@
     </queries>
     <queries>
         <package android:name="com.ichi2.anki" />
+        <provider android:authorities="com.ichi2.anki.flashcards" />
     </queries>
     <application
         android:allowBackup="true"

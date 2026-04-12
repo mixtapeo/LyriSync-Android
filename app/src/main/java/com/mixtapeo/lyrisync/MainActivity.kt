@@ -234,31 +234,54 @@ class MainActivity : AppCompatActivity() {
             getSharedPreferences("LyriSyncPrefs", MODE_PRIVATE).edit { putInt("ANKI_MODE", 0) }
         }
     }
+    private fun isWebTokenValid(): Boolean {
+        val prefs = getSharedPreferences("LyriSyncPrefs", MODE_PRIVATE)
+        val token = prefs.getString("SPOTIFY_TOKEN", null)
+        val expireTime = prefs.getLong("SPOTIFY_TOKEN_EXPIRE_TIME", 0L)
+
+        // Return false if there's no token, OR if the current time is past the expiration
+        // (minus a 60-second safety buffer).
+        return token != null && System.currentTimeMillis() < (expireTime - 60000)
+    }
+    private fun checkAndRefreshSpotifyToken() {
+        if (isWebTokenValid()) {
+            Log.d("LyriSync", "Token is still valid. Skipping auth popup.")
+            // If it's valid, make sure the loop is running!
+            if (syncJob == null || !syncJob!!.isActive) {
+                startHybridSyncLoop()
+            }
+        } else {
+            Log.w("LyriSync", "Token is dead or missing. Requesting new one...")
+            requestFreshSpotifyToken()
+        }
+    }
     private val SPOTIFY_AUTH_REQUEST_CODE = 1337
     private var isRefreshingToken = false
+    @SuppressLint("DirectSystemCurrentTimeMillisUsage")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
 
         if (requestCode == SPOTIFY_AUTH_REQUEST_CODE) {
-            // 1. RELEASE THE LOCK immediately
             isRefreshingToken = false
-
             val response = com.spotify.sdk.android.auth.AuthorizationClient.getResponse(resultCode, data)
 
             when (response.type) {
                 com.spotify.sdk.android.auth.AuthorizationResponse.Type.TOKEN -> {
                     val freshToken = response.accessToken
-                    Log.d("LyriSync", "Got fresh token! $freshToken")
 
-                    // Save it to SharedPreferences
+                    // --- Calculate exact expiration time in milliseconds ---
+                    // expiresIn is usually 3600 seconds. We multiply by 1000 for Ms.
+                    val expireTimeMs = System.currentTimeMillis() + (response.expiresIn * 1000)
+
+                    Log.d("LyriSync", "Got fresh token! Expires at timestamp: $expireTimeMs")
+
+                    // Save BOTH the token and the expiration time
                     getSharedPreferences("LyriSyncPrefs", MODE_PRIVATE).edit {
                         putString("SPOTIFY_TOKEN", freshToken)
+                        putLong("SPOTIFY_TOKEN_EXPIRE_TIME", expireTimeMs)
                     }
 
-                    // Update your local variable
                     myAccessToken = freshToken
-
-                    // 2. RESTART THE ENGINE now that we have fuel
                     startHybridSyncLoop()
                 }
                 com.spotify.sdk.android.auth.AuthorizationResponse.Type.ERROR -> {
@@ -983,11 +1006,11 @@ class MainActivity : AppCompatActivity() {
                     // ---------------------------------------------------------
                     // ENGINE 2: WEB API FALLBACK MODE (Polled, Dead-Reckoned)
                     // ---------------------------------------------------------
-                    if (banner.visibility == View.GONE) {
-                        banner.text = "Cloud Sync Active (Local App Asleep/Missing)"
-                        banner.backgroundTintList = ColorStateList.valueOf("#E65100".toColorInt())
-                        banner.visibility = View.VISIBLE
-                    }
+//                    if (banner.visibility == View.GONE) {
+//                        banner.text = "Cloud Sync Active (Local App Asleep/Missing)"
+//                        banner.backgroundTintList = ColorStateList.valueOf("#E65100".toColorInt())
+//                        banner.visibility = View.VISIBLE
+//                    }
 
                     timeSinceLastWebPoll += 100
 
@@ -1021,7 +1044,7 @@ class MainActivity : AppCompatActivity() {
                                 if (!isRefreshingToken) {
                                     isRefreshingToken = true
                                     Log.d("Lyrisync", "401 Unauthorized. Pausing sync and opening Login.")
-                                    requestFreshSpotifyToken()
+                                    checkAndRefreshSpotifyToken()
                                 }
                             // KILL THE LOOP completely. We will restart it when the user finishes logging in.
                                 return@launch
