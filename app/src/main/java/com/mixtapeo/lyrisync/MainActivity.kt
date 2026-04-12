@@ -217,6 +217,29 @@ class MainActivity : AppCompatActivity() {
     private var lastSdkPosition = -1L
     private var webApiProgressMs = -1L
     private var isWebPlaying = false
+    private fun updateAnkiMode(mode: Int) {
+        val sharedPrefs = getSharedPreferences("LyriSyncPrefs", MODE_PRIVATE)
+
+        // Check for permissions if we are moving to a non-zero mode
+        if (mode != 0) {
+            val permission = "com.ichi2.anki.permission.READ_WRITE_DATABASE"
+            if (androidx.core.content.ContextCompat.checkSelfPermission(this, permission)
+                != android.content.pm.PackageManager.PERMISSION_GRANTED
+            ) {
+                ankiPermissionLauncher.launch(permission)
+                return
+            }
+        }
+
+        Log.i("LyriSync", "Anki mode updated to: $mode")
+        sharedPrefs.edit {
+            putInt("ANKI_MODE", mode)
+            putBoolean("REFRESH_LYRICS_REQUESTED", true)
+        }
+
+        // Refresh the lyrics display to show/hide words immediately
+        lyricAdapter?.notifyDataSetChanged()
+    }
     private val ankiPermissionLauncher = registerForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
     ) { isGranted: Boolean ->
@@ -228,9 +251,6 @@ class MainActivity : AppCompatActivity() {
             Log.w("LyriSync", "Anki permission denied.")
             Toast.makeText(this, "Permission required for Anki sync.", Toast.LENGTH_LONG).show()
 
-            // Revert the setting to "Show All Words" if they deny it
-            val ankiRadioGroup = findViewById<RadioGroup>(R.id.ankiExcludeRadioGroup)
-            ankiRadioGroup.check(R.id.radioAnkiNone)
             getSharedPreferences("LyriSyncPrefs", MODE_PRIVATE).edit { putInt("ANKI_MODE", 0) }
         }
     }
@@ -435,20 +455,52 @@ class MainActivity : AppCompatActivity() {
         }
 
         // --- Setup Anki Exclude Logic ---
+        val ankiSwitch = findViewById<MaterialSwitch>(R.id.ankiEnabledSwitch)
         val ankiRadioGroup = findViewById<RadioGroup>(R.id.ankiExcludeRadioGroup)
 
         val ankiIdToIndex = mapOf(
-            R.id.radioAnkiNone to 0,
             R.id.radioAnkiExists to 1,
             R.id.radioAnkiStudied to 2
         )
-        // Create a reverse map to find the ID based on the saved Index
         val ankiIndexToId = ankiIdToIndex.entries.associate { it.value to it.key }
 
-        // 1. LOAD AND SET SAVED UI STATE
+// 1. LOAD SAVED STATE
         val savedAnkiMode = sharedPrefs.getInt("ANKI_MODE", 0)
-        ankiIndexToId[savedAnkiMode]?.let { idToCheck ->
-            ankiRadioGroup.check(idToCheck)
+
+// Initial UI Setup
+        if (savedAnkiMode == 0) {
+            ankiSwitch.isChecked = false
+            ankiRadioGroup.alpha = 0.5f // Visual cue it's disabled
+            // Check the first option by default so it's ready for when they turn it on
+            ankiRadioGroup.check(R.id.radioAnkiExists)
+        } else {
+            ankiSwitch.isChecked = true
+            ankiRadioGroup.alpha = 1.0f
+            ankiIndexToId[savedAnkiMode]?.let { id -> ankiRadioGroup.check(id) }
+        }
+
+// 2. THE SWITCH LISTENER (Master Control)
+        ankiSwitch.setOnCheckedChangeListener { _, isChecked ->
+            if (isChecked) {
+                ankiRadioGroup.alpha = 1.0f
+                // When turned on, find out which radio is currently clicked
+                val currentRadioId = ankiRadioGroup.checkedRadioButtonId
+                val newMode = ankiIdToIndex[currentRadioId] ?: 1 // Default to "Exclude if in Deck"
+
+                updateAnkiMode(newMode)
+            } else {
+                ankiRadioGroup.alpha = 0.5f
+                updateAnkiMode(0) // Switch off = Mode 0
+            }
+        }
+
+// 3. THE RADIO GROUP LISTENER (Sub-Selection)
+        ankiRadioGroup.setOnCheckedChangeListener { _, checkedId ->
+            // Only update if the switch is actually ON
+            if (ankiSwitch.isChecked) {
+                val newMode = ankiIdToIndex[checkedId] ?: 1
+                updateAnkiMode(newMode)
+            }
         }
 
         // 2. SET THE LISTENER (Your existing logic)

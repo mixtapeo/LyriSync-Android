@@ -404,13 +404,24 @@
                             android:layout_height="wrap_content"
                             android:checked="false" />
                     </LinearLayout>
-                    <TextView
-                        android:layout_width="wrap_content"
+                    <LinearLayout
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="16dp"
-                        android:text="Anki Integration"
-                        android:textColor="@color/gray"
-                        android:textSize="16sp" />
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Anki Integration"
+                            android:textColor="@color/gray"
+                            android:textSize="16sp" />
+                        <com.google.android.material.materialswitch.MaterialSwitch
+                            android:id="@+id/ankiEnabledSwitch"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:checked="false" />
+                    </LinearLayout>
 
                     <RadioGroup
                         android:id="@+id/ankiExcludeRadioGroup"
@@ -418,13 +429,13 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp">
 
-                        <RadioButton
-                            android:id="@+id/radioAnkiNone"
-                            android:layout_width="match_parent"
-                            android:layout_height="48dp"
-                            android:buttonTint="@color/brand_primary"
-                            android:text="Show All Words"
-                            android:textColor="#E0E0E0" />
+<!--                        <RadioButton-->
+<!--                            android:id="@+id/radioAnkiNone"-->
+<!--                            android:layout_width="match_parent"-->
+<!--                            android:layout_height="48dp"-->
+<!--                            android:buttonTint="@color/brand_primary"-->
+<!--                            android:text="Show All Words"-->
+<!--                            android:textColor="#E0E0E0" />-->
 
                         <RadioButton
                             android:id="@+id/radioAnkiExists"
