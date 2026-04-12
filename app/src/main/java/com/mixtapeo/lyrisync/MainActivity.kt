@@ -84,9 +84,7 @@ data class SpotifyArtist(val name: String)
 
 interface SpotifyWebApi {
     @GET("v1/me/player")
-    suspend fun getPlaybackState(
-        @retrofit2.http.Header("Authorization") bearerToken: String
-    ): retrofit2.Response<SpotifyPlaybackResponse>
+    suspend fun getPlaybackState(): retrofit2.Response<SpotifyPlaybackResponse>
 }
 
 private val customOkHttpClient: okhttp3.OkHttpClient by lazy {
@@ -254,6 +252,7 @@ class MainActivity : AppCompatActivity() {
             getSharedPreferences("LyriSyncPrefs", MODE_PRIVATE).edit { putInt("ANKI_MODE", 0) }
         }
     }
+    @SuppressLint("DirectSystemCurrentTimeMillisUsage")
     private fun isWebTokenValid(): Boolean {
         val prefs = getSharedPreferences("LyriSyncPrefs", MODE_PRIVATE)
         val token = prefs.getString("SPOTIFY_TOKEN", null)
@@ -379,6 +378,7 @@ class MainActivity : AppCompatActivity() {
         // 1. DECLARE ONCE AT THE TOP
         val sharedPrefs = getSharedPreferences("LyriSyncPrefs", MODE_PRIVATE)
         val controller = WindowCompat.getInsetsController(window, window.decorView)
+        myAccessToken = sharedPrefs.getString("SPOTIFY_TOKEN", BuildConfig.myAccessToken)
 
         // 2. SYSTEM NAVIGATION LOGIC
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -930,9 +930,6 @@ class MainActivity : AppCompatActivity() {
             // Try to connect silently first.
             reconnectToSpotify(forceAuthView = false)
         }
-
-        // START THE NEW HYBRID LOOP HERE
-        startHybridSyncLoop()
     }
 
     override fun onStop() {
@@ -983,6 +980,11 @@ class MainActivity : AppCompatActivity() {
                 isConnecting = false
                 Log.e("Lyrisync", "Connection failed: ${throwable.message}")
 
+                // Start the loop here so it gracefully falls back to the Web API
+                if (syncAndMonitorJob == null || !syncAndMonitorJob!!.isActive) {
+                    startHybridSyncLoop()
+                }
+
                 // If it fails, we DO NOT loop a reconnect attempt here anymore.
                 // We just let it fail. The startHybridSyncLoop will detect that
                 // isConnected == false and automatically switch to the Web API!
@@ -1004,7 +1006,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private var syncAndMonitorJob: Job? = null
-
+    private var currentFetchJob: Job? = null // currently active "fetch" job. Explicitly cancel it the moment a new song is detected.
     @SuppressLint("UseKtx")
     private fun startHybridSyncLoop() {
         syncAndMonitorJob?.cancel()
@@ -1016,7 +1018,7 @@ class MainActivity : AppCompatActivity() {
 
             while (isActive) {
                 val isSdkConnected = spotifyAppRemote?.isConnected == true
-
+//                Log.d("Lyrisync", "SDK Connected: $isSdkConnected")
                 if (activeEngine == SyncEngine.SDK) {
                     // ---------------------------------------------------------
                     // ENGINE 1: LOCAL SDK MODE (Fast, 100ms UI updates)
@@ -1049,7 +1051,7 @@ class MainActivity : AppCompatActivity() {
                                 // Set baseline for the NEXT 2-second check
                                 lastSdkPosition = currentSdkPos
                             }
-
+//                            Log.d("Lyrisync", "SDK Pos: $currentSdkPos")
                             // Always sync lyrics immediately to keep the UI buttery smooth
                             syncLyricsToPosition(currentSdkPos)
                         }
@@ -1071,8 +1073,7 @@ class MainActivity : AppCompatActivity() {
                         timeSinceLastWebPoll = 0
 
                         try {
-                            val response =
-                                spotifyApiService.getPlaybackState("Bearer $myAccessToken")
+                            val response = spotifyApiService.getPlaybackState()
 
                             if (response.isSuccessful && response.body() != null) {
                                 val state = response.body()!!
@@ -1274,22 +1275,26 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun fetchLyrics(title: String, artist: String) {
+        // 1. CANCEL ANY ONGOING FETCH IMMEDIATELY
+        currentFetchJob?.cancel()
+
         runOnUiThread {
             findViewById<ProgressBar>(R.id.loadingCircle).visibility = View.VISIBLE
-            // 2. CLEAR EVERYTHING CURRENT
+            // CLEAR EVERYTHING CURRENT
             parsedLyrics = emptyList()
             translatedLyrics = emptyList()
             preparedLineSets.clear()
             songDictionary.clear()
 
-            // 3. Tell the UI to go blank
+            // Tell the UI to go blank
             lyricAdapter?.updateData(emptyList(), emptyList(), emptyList(), emptyList())
 
-            // 4. Reset the highlighted line
+            // Reset the highlighted line
             activeIndex = -1
         }
 
-        lifecycleScope.launch(Dispatchers.IO) {
+        // 2. ASSIGN THIS LAUNCH TO YOUR VARIABLE
+        currentFetchJob = lifecycleScope.launch(Dispatchers.IO) {
             withContext(Dispatchers.IO) {
                 try {
                     val response = lrcService.searchLyrics(title, artist)
@@ -1628,6 +1633,7 @@ class MainActivity : AppCompatActivity() {
                     "Lyrisync",
                     "TOTAL PREFETCH TIME: ${System.currentTimeMillis() - startTime}ms"
                 )
+
             }
         }
     }
