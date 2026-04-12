@@ -467,6 +467,29 @@
                         android:layout_height="48dp"
                         android:layout_marginTop="4dp"
                         android:backgroundTint="@color/brand_primary" />
+                </LinearLayout>
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:paddingHorizontal="16dp">
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="16dp"
+                            android:text="Media Provider"
+                            android:textColor="@color/gray"
+                            android:textSize="14sp" />
+
+                        <Spinner
+                            android:id="@+id/providerSpinner"
+                            android:layout_width="match_parent"
+                            android:layout_height="48dp"
+                            android:layout_marginTop="4dp"
+                            android:backgroundTint="@color/brand_primary"
+                            android:entries="@array/provider_options" />
+
+
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/wipeHistoryButton"
                         style="@style/Widget.Material3.Button.TonalButton"

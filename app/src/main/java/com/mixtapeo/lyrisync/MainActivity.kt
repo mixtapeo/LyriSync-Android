@@ -9,7 +9,6 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.util.Log
 import android.util.TypedValue
 import android.view.LayoutInflater
 import android.view.View
@@ -56,9 +55,11 @@ import androidx.room.Query as SqlQuery
 import retrofit2.http.Query as ApiQuery
 import android.net.Uri
 import java.util.concurrent.TimeUnit
-import kotlin.collections.toTypedArray
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import android.util.Log
+import android.provider.Settings
+import androidx.core.app.NotificationManagerCompat
 
 private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -185,12 +186,10 @@ abstract class AppDatabase : RoomDatabase() {
 private val queryCache = mutableMapOf<String, JishoEntry?>()
 private val globalAnkiCache = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
 private val jpCharacterRegex = Regex("[\\u3040-\\u30ff\\u4e00-\\u9faf]")
-val ankiCache = mutableMapOf<String, Boolean>()
 
 class MainActivity : AppCompatActivity() {
     private val clientId = BuildConfig.SPOTIFY_CLIENT_ID
     private var myAccessToken: String? = BuildConfig.myAccessToken
-
     private var translatedLyrics = listOf<String>()
     private var lyricAdapter: LyricAdapter? = null
     private var parsedLyrics = listOf<LyricLine>()
@@ -208,13 +207,12 @@ class MainActivity : AppCompatActivity() {
     private var isConnecting = false
     private var currentTrackUri: String? = null
     private var activeIndex = -1
-
     enum class SyncEngine { SDK, WEB_API }
-
     private var activeEngine = SyncEngine.SDK
     private var lastSdkPosition = -1L
     private var webApiProgressMs = -1L
     private var isWebPlaying = false
+    private var universalSyncJob: Job? = null
     private fun updateAnkiMode(mode: Int) {
         val sharedPrefs = getSharedPreferences("LyriSyncPrefs", MODE_PRIVATE)
 
@@ -237,6 +235,19 @@ class MainActivity : AppCompatActivity() {
 
         // Refresh the lyrics display to show/hide words immediately
         lyricAdapter?.notifyDataSetChanged()
+    }
+    fun checkNotificationPermission() {
+        val isGranted = NotificationManagerCompat.getEnabledListenerPackages(this)
+            .contains(packageName)
+
+        if (!isGranted) {
+            // Redirect user to the Notification Access settings screen
+            val intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+            startActivity(intent)
+            // You'll want to show a Toast or Dialog explaining WHY you need this first!
+        } else {
+            Log.d("LyriSync", "We have permission to read all media players!")
+        }
     }
     private val ankiPermissionLauncher = registerForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
@@ -556,6 +567,24 @@ class MainActivity : AppCompatActivity() {
 
                 override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
             }
+
+        val providerSpinner = findViewById<android.widget.Spinner>(R.id.providerSpinner)
+        val savedProvider = sharedPrefs.getString("MEDIA_PROVIDER", "SPOTIFY")
+
+        // Set initial selection
+        if (savedProvider == "UNIVERSAL") providerSpinner.setSelection(1)
+        else providerSpinner.setSelection(0)
+
+        providerSpinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
+                val selected = if (position == 0) "SPOTIFY" else "UNIVERSAL"
+                sharedPrefs.edit().putString("MEDIA_PROVIDER", selected).apply()
+
+                // RE-ROUTE THE ENGINES ON THE FLY!
+                applyProviderRouting(selected)
+            }
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
+        }
 
         // --- 1. SETUP MAIN CONTENT LISTS ---
         val recyclerView = findViewById<RecyclerView>(R.id.lyricRecyclerView)
@@ -904,6 +933,55 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun applyProviderRouting(provider: String) {
+        if (provider == "UNIVERSAL") {
+            Log.i("LyriSync", "Routing to Universal Engine...")
+            // 1. Kill the Spotify Loop
+            syncAndMonitorJob?.cancel()
+
+            // 2. Disconnect Local Spotify if it's running
+            spotifyAppRemote?.let { SpotifyAppRemote.disconnect(it) }
+
+            // 3. Make sure we have permission
+            checkNotificationPermission()
+
+            // 4. Start listening to the Universal Bridge
+            startUniversalSyncLoop()
+
+        } else {
+            Log.i("LyriSync", "Routing to Spotify Engine...")
+            // 1. Kill the Universal Loop
+            universalSyncJob?.cancel()
+
+            // 2. Restart the Spotify connection sequence
+            reconnectToSpotify(forceAuthView = false)
+            // (Remember, reconnectToSpotify starts the syncAndMonitorJob on success/fail)
+        }
+    }
+
+    private fun startUniversalSyncLoop() {
+        universalSyncJob?.cancel()
+        universalSyncJob = lifecycleScope.launch(Dispatchers.Main) {
+            UniversalMediaBridge.mediaState.collect { state ->
+
+                // 1. Did the song change?
+                if (state.triggerNewFetch && state.title.isNotBlank()) {
+                    currentTrackUri = null // Reset spotify tracking
+                    activeIndex = -1
+                    findViewById<TextView>(R.id.songTitleText).text = state.title
+                    findViewById<TextView>(R.id.artistNameText).text = state.artist
+
+                    fetchLyrics(state.title, state.artist)
+                }
+
+                // 2. Sync the lyrics to the time
+                if (state.isPlaying && state.positionMs > 0) {
+                    syncLyricsToPosition(state.positionMs)
+                }
+            }
+        }
+    }
+
     private fun populateAnkiDecks() {
         val ankiDeckSpinner = findViewById<android.widget.Spinner>(R.id.ankiDeckSpinner)
         val sharedPrefs = getSharedPreferences("LyriSyncPrefs", Context.MODE_PRIVATE)
@@ -927,8 +1005,8 @@ class MainActivity : AppCompatActivity() {
         val isFirstRun = sharedPrefs.getBoolean("IS_FIRST_RUN", true)
 
         if (!isFirstRun) {
-            // Try to connect silently first.
-            reconnectToSpotify(forceAuthView = false)
+            val activeProvider = sharedPrefs.getString("MEDIA_PROVIDER", "SPOTIFY") ?: "SPOTIFY"
+            applyProviderRouting(activeProvider)
         }
     }
 
