@@ -863,6 +863,8 @@ class MainActivity : AppCompatActivity() {
                 val trueWidth = homeScreen.width.toFloat()
                 val trueHeight = homeScreen.height.toFloat()
 
+                searchInput.clearFocus() //CLEAR FOCUS of keyboard
+
                 when (item.itemId) {
                     R.id.nav_home -> {
                         if (isSearchOpen) {

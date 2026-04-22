@@ -553,7 +553,9 @@
             android:orientation="vertical"
             android:padding="16dp"
             android:translationY="5000dp"
-            android:visibility="invisible">
+            android:visibility="invisible"
+            android:focusable="true"
+            android:focusableInTouchMode="true">
 
             <TextView
                 android:layout_width="wrap_content"
