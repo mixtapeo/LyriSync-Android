@@ -1608,6 +1608,9 @@ class MainActivity : AppCompatActivity() {
                     val baseForm = token.baseForm ?: surface // The dictionary form (e.g., "走る")
                     val pos1 = token.partOfSpeechLevel1 // e.g., Noun (名詞), Particle (助詞), etc.
 
+                    if (surface.isBlank()) {
+                        return@forEach
+                    }
                     // FAST FAIL 1: Skip punctuation (記号) or purely non-Japanese segments
                     if (pos1 == "記号" || !surface.contains(jpCharacterRegex)) {
                         lineReadings.add(surface)
