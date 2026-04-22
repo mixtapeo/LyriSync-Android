@@ -225,6 +225,8 @@ class MainActivity : AppCompatActivity() {
                 ankiPermissionLauncher.launch(permission)
                 return
             }
+            // If we have permission and are enabling a mode, fetch the decks
+            populateAnkiDecks()
         }
 
         Log.i("LyriSync", "Anki mode updated to: $mode")
@@ -234,7 +236,12 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Refresh the lyrics display to show/hide words immediately
-        lyricAdapter?.notifyDataSetChanged()
+        globalAnkiCache.clear()
+        if (parsedLyrics.isNotEmpty()) {
+            prefetchSongDictionary(parsedLyrics)
+        } else {
+            lyricAdapter?.notifyDataSetChanged()
+        }
     }
     fun checkNotificationPermission() {
         val isGranted = NotificationManagerCompat.getEnabledListenerPackages(this)
@@ -468,6 +475,8 @@ class MainActivity : AppCompatActivity() {
         // --- Setup Anki Exclude Logic ---
         val ankiSwitch = findViewById<MaterialSwitch>(R.id.ankiEnabledSwitch)
         val ankiRadioGroup = findViewById<RadioGroup>(R.id.ankiExcludeRadioGroup)
+        val TargetAnkiDeck = findViewById<TextView>(R.id.TargetAnkiDeck)
+        val ankiDeckSpinner = findViewById<android.widget.Spinner>(R.id.ankiDeckSpinner)
 
         val ankiIdToIndex = mapOf(
             R.id.radioAnkiExists to 1,
@@ -475,42 +484,80 @@ class MainActivity : AppCompatActivity() {
         )
         val ankiIndexToId = ankiIdToIndex.entries.associate { it.value to it.key }
 
-// 1. LOAD SAVED STATE
+        // 1. LOAD SAVED STATE
         val savedAnkiMode = sharedPrefs.getInt("ANKI_MODE", 0)
 
-// Initial UI Setup
+
+        // 1. Initial Load: Populate if ANY mode is enabled and we have permission
+        if (savedAnkiMode != 0) {
+            val permission = "com.ichi2.anki.permission.READ_WRITE_DATABASE"
+            if (androidx.core.content.ContextCompat.checkSelfPermission(this, permission)
+                == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                populateAnkiDecks()
+            }
+        }
+
+        // 2. Listen for User Selection
+        ankiDeckSpinner.onItemSelectedListener =
+            object : android.widget.AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(
+                    parent: android.widget.AdapterView<*>?,
+                    view: View?,
+                    position: Int,
+                    id: Long
+                ) {
+                    val selectedDeck = parent?.getItemAtPosition(position).toString()
+                    sharedPrefs.edit { putString("ANKI_DECK", selectedDeck) }
+
+                    // Optional: Change the text color to white so it looks good on dark theme
+                    (view as? TextView)?.setTextColor(Color.WHITE)
+                    globalAnkiCache.clear()
+                    if (parsedLyrics.isNotEmpty()) prefetchSongDictionary(parsedLyrics)
+                }
+
+                override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
+            }
+
+        // Initial UI Setup
         if (savedAnkiMode == 0) {
             ankiSwitch.isChecked = false
             ankiRadioGroup.alpha = 0.5f // Visual cue it's disabled
             // Check the first option by default so it's ready for when they turn it on
             ankiRadioGroup.check(R.id.radioAnkiExists)
+            TargetAnkiDeck.alpha = 0.5f
+            TargetAnkiDeck.isEnabled = false
+            ankiDeckSpinner.alpha = 0.5f
+            ankiDeckSpinner.isEnabled = false
         } else {
             ankiSwitch.isChecked = true
             ankiRadioGroup.alpha = 1.0f
+            ankiDeckSpinner.alpha = 1.0f
+            ankiDeckSpinner.isEnabled = true
+            TargetAnkiDeck.alpha = 1.0f
+            TargetAnkiDeck.isEnabled = true
             ankiIndexToId[savedAnkiMode]?.let { id -> ankiRadioGroup.check(id) }
         }
 
-// 2. THE SWITCH LISTENER (Master Control)
+        // 2. THE SWITCH LISTENER (Master Control)
         ankiSwitch.setOnCheckedChangeListener { _, isChecked ->
             if (isChecked) {
                 ankiRadioGroup.alpha = 1.0f
                 // When turned on, find out which radio is currently clicked
                 val currentRadioId = ankiRadioGroup.checkedRadioButtonId
                 val newMode = ankiIdToIndex[currentRadioId] ?: 1 // Default to "Exclude if in Deck"
+                ankiDeckSpinner.alpha = 1.0f
+                ankiDeckSpinner.isEnabled = true
+                TargetAnkiDeck.alpha = 1.0f
+                TargetAnkiDeck.isEnabled = true
 
                 updateAnkiMode(newMode)
             } else {
                 ankiRadioGroup.alpha = 0.5f
+                TargetAnkiDeck.alpha = 0.5f
+                TargetAnkiDeck.isEnabled = false
+                ankiDeckSpinner.alpha = 0.5f
+                ankiDeckSpinner.isEnabled = false
                 updateAnkiMode(0) // Switch off = Mode 0
-            }
-        }
-
-// 3. THE RADIO GROUP LISTENER (Sub-Selection)
-        ankiRadioGroup.setOnCheckedChangeListener { _, checkedId ->
-            // Only update if the switch is actually ON
-            if (ankiSwitch.isChecked) {
-                val newMode = ankiIdToIndex[checkedId] ?: 1
-                updateAnkiMode(newMode)
             }
         }
 
@@ -536,37 +583,6 @@ class MainActivity : AppCompatActivity() {
 
             lyricAdapter?.notifyDataSetChanged()
         }
-
-        val ankiDeckSpinner = findViewById<android.widget.Spinner>(R.id.ankiDeckSpinner)
-
-        // 1. Initial Load: Populate decks immediately if we already have permission
-        if (androidx.core.content.ContextCompat.checkSelfPermission(
-                this,
-                "com.ichi2.anki.permission.READ_WRITE_DATABASE"
-            )
-            == android.content.pm.PackageManager.PERMISSION_GRANTED
-        ) {
-            populateAnkiDecks()
-        }
-
-        // 2. Listen for User Selection
-        ankiDeckSpinner.onItemSelectedListener =
-            object : android.widget.AdapterView.OnItemSelectedListener {
-                override fun onItemSelected(
-                    parent: android.widget.AdapterView<*>?,
-                    view: View?,
-                    position: Int,
-                    id: Long
-                ) {
-                    val selectedDeck = parent?.getItemAtPosition(position).toString()
-                    sharedPrefs.edit { putString("ANKI_DECK", selectedDeck) }
-
-                    // Optional: Change the text color to white so it looks good on dark theme
-                    (view as? TextView)?.setTextColor(Color.WHITE)
-                }
-
-                override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
-            }
 
         val providerSpinner = findViewById<android.widget.Spinner>(R.id.providerSpinner)
         val savedProvider = sharedPrefs.getString("MEDIA_PROVIDER", "SPOTIFY")
@@ -985,6 +1001,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun populateAnkiDecks() {
+        Log.i("LyriSync", "Populating Anki Decks...")
         val ankiDeckSpinner = findViewById<android.widget.Spinner>(R.id.ankiDeckSpinner)
         val sharedPrefs = getSharedPreferences("LyriSyncPrefs", Context.MODE_PRIVATE)
 
@@ -2041,31 +2058,41 @@ class SearchAdapter(
 object AnkiHelper {
     private val NOTES_URI = Uri.parse("content://com.ichi2.anki.flashcards/notes")
     private val DECKS_URI = Uri.parse("content://com.ichi2.anki.flashcards/decks")
+
     fun getDeckList(context: Context): List<String> {
-        val decks = mutableListOf("All Decks") // Default option
+        val decks = mutableListOf("All Decks")
 
         if (androidx.core.content.ContextCompat.checkSelfPermission(
                 context,
                 "com.ichi2.anki.permission.READ_WRITE_DATABASE"
-            )
-            != android.content.pm.PackageManager.PERMISSION_GRANTED
+            ) != android.content.pm.PackageManager.PERMISSION_GRANTED
         ) {
-            return decks // Return just "All Decks" if we don't have permission yet
+            return decks
         }
 
         try {
+            // --- FIX 1: Change "name" to "deck_name" in the query array and sort order ---
             val cursor = context.contentResolver.query(
                 DECKS_URI,
-                arrayOf("name"), // We only need the deck name
+                arrayOf("deck_name"),
                 null,
                 null,
-                "name COLLATE NOCASE ASC" // Alphabetical sort
+                "deck_name COLLATE NOCASE ASC"
             )
 
             cursor?.use {
-                val nameIndex = it.getColumnIndexOrThrow("name")
-                while (it.moveToNext()) {
-                    decks.add(it.getString(nameIndex))
+                val nameIndex = it.getColumnIndex("deck_name")
+
+                if (nameIndex != -1) {
+                    while (it.moveToNext()) {
+                        val deckName = it.getString(nameIndex)
+                        Log.d("Lyrisync", "Deck: $deckName")
+                        if (!deckName.isNullOrBlank()) {
+                            decks.add(deckName)
+                        }
+                    }
+                } else {
+                    Log.e("Lyrisync", "Column 'deck_name' missing! Columns available: ${it.columnNames.joinToString()}")
                 }
             }
         } catch (e: Exception) {
@@ -2105,27 +2132,20 @@ object AnkiHelper {
             // We only make ONE query to the notes table
             val cursor = context.contentResolver.query(
                 NOTES_URI,
-                arrayOf("_id"), // Just need the ID to confirm it exists
+                null,
                 ankiSearchQuery,
                 null,
                 null
             )
-//            Log.d("Lyrisync", "Query: $ankiSearchQuery")
+            Log.d("Lyrisync", "Query: $ankiSearchQuery")
             if (cursor != null) {
                 cursor.use {
                     if (it.moveToFirst()) {
-                        val noteId = it.getLong(it.getColumnIndexOrThrow("_id"))
-                        Log.d(
-                            "Lyrisync",
-                            "Excluding [$cleanWord]! Match found for query: $ankiSearchQuery (Note ID: $noteId)"
-                        )
-                        return true // Exclude it!
+                        Log.d("Lyrisync", "Excluding [$cleanWord]! Match found for query: $ankiSearchQuery")
+                        return true
                     } else {
-                        Log.d(
-                            "Lyrisync",
-                            "Keeping [$cleanWord]. No match found for query: $ankiSearchQuery"
-                        )
-                        return false // Keep it!
+                        Log.d("Lyrisync", "Keeping [$cleanWord]. No match found for query: $ankiSearchQuery")
+                        return false
                     }
                 }
             }
