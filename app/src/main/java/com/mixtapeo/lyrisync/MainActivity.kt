@@ -852,10 +852,7 @@ class MainActivity : AppCompatActivity() {
                         getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
                     imm.hideSoftInputFromWindow(v.windowToken, 0)
 
-                    if (!isNetworkConnected()) {
-                        Toast.makeText(this@MainActivity, "No internet connection", Toast.LENGTH_SHORT).show()
-                        return@setOnEditorActionListener true
-                    }
+                    checkOnline()
                     // Fire the API Call
                     lifecycleScope.launch(Dispatchers.IO) {
                         try {
@@ -1092,7 +1089,7 @@ class MainActivity : AppCompatActivity() {
             override fun onFailure(throwable: Throwable) {
                 isConnecting = false
                 Log.e("Lyrisync", "Connection failed: ${throwable.message}")
-
+                checkOnline()
                 // Start the loop here so it gracefully falls back to the Web API
                 if (syncAndMonitorJob == null || !syncAndMonitorJob!!.isActive) {
                     startHybridSyncLoop()
@@ -1117,7 +1114,19 @@ class MainActivity : AppCompatActivity() {
             }
         })
     }
-
+    private fun checkOnline() {
+        if (!isNetworkConnected()) {
+            Log.d("Lyrisync", "No internet connection")
+            // update UI to show "No Connection" state
+            runOnUiThread {
+                findViewById<TextView>(R.id.NoLyricsText).text = "No Connection"
+                findViewById<TextView>(R.id.NoLyricsText).visibility = View.VISIBLE
+                findViewById<TextView>(R.id.artistNameText).text = ""
+                findViewById<TextView>(R.id.songTitleText).text = ""
+                lyricAdapter?.updateData(emptyList(), emptyList(), emptyList(), emptyList())
+            }
+        }
+    }
     private var syncAndMonitorJob: Job? = null
     private var currentFetchJob: Job? = null // currently active "fetch" job. Explicitly cancel it the moment a new song is detected.
     @SuppressLint("UseKtx")
@@ -1131,7 +1140,7 @@ class MainActivity : AppCompatActivity() {
 
             while (isActive) {
                 val isSdkConnected = spotifyAppRemote?.isConnected == true
-//                Log.d("Lyrisync", "SDK Connected: $isSdkConnected")
+                Log.d("Lyrisync", "SDK Connected: $isSdkConnected")
                 if (activeEngine == SyncEngine.SDK) {
                     // ---------------------------------------------------------
                     // ENGINE 1: LOCAL SDK MODE (Fast, 100ms UI updates)
@@ -1164,7 +1173,7 @@ class MainActivity : AppCompatActivity() {
                                 // Set baseline for the NEXT 2-second check
                                 lastSdkPosition = currentSdkPos
                             }
-//                            Log.d("Lyrisync", "SDK Pos: $currentSdkPos")
+                            Log.d("Lyrisync", "SDK Pos: $currentSdkPos")
                             // Always sync lyrics immediately to keep the UI buttery smooth
                             syncLyricsToPosition(currentSdkPos)
                         }
@@ -1237,17 +1246,7 @@ class MainActivity : AppCompatActivity() {
                         } catch (e: java.net.UnknownHostException){
                             // no internet probably. No way spotify webapi is down.
                             Log.d("Lyrisync", "man come on are you here")
-                            if (!isNetworkConnected()) {
-                                Log.d("Lyrisync", "No internet connection")
-                                // update UI to show "No Connection" state
-                                runOnUiThread {
-                                    findViewById<TextView>(R.id.NoLyricsText).text = "No Connection"
-                                    findViewById<TextView>(R.id.NoLyricsText).visibility = View.VISIBLE
-                                    findViewById<TextView>(R.id.artistNameText).text = ""
-                                    findViewById<TextView>(R.id.songTitleText).text = ""
-                                    lyricAdapter?.updateData(emptyList(), emptyList(), emptyList(), emptyList())
-                                }
-                            }
+                            checkOnline()
                         }
                         catch (e: java.io.IOException) {
                             // Catches general network timeouts and offline issues
@@ -1403,17 +1402,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun fetchLyrics(title: String, artist: String) {
-        if (!isNetworkConnected()) {
-            Toast.makeText(this, "No internet connection", Toast.LENGTH_SHORT).show()
-
-            // Optionally update UI to show "No Connection" state
-            runOnUiThread {
-                findViewById<TextView>(R.id.NoLyricsText).text = "No Connection"
-                findViewById<TextView>(R.id.NoLyricsText).visibility = View.VISIBLE
-                lyricAdapter?.updateData(emptyList(), emptyList(), emptyList(), emptyList())
-            }
-            return
-        }
+        checkOnline()
         // 1. CANCEL ANY ONGOING FETCH IMMEDIATELY
         currentFetchJob?.cancel()
 
