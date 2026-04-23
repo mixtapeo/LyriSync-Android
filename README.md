@@ -50,3 +50,6 @@ Kuromoji
 
 ## License
 Project uses GNU General Public License v3.0
+
+need to add licenses:
+kuromoji apache v2

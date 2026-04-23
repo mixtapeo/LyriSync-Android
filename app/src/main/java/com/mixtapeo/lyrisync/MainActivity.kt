@@ -60,7 +60,8 @@ import kotlinx.coroutines.awaitAll
 import android.util.Log
 import android.provider.Settings
 import androidx.core.app.NotificationManagerCompat
-
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 private val mainHandler = Handler(Looper.getMainLooper())
 
 data class HighlightSpan(
@@ -386,6 +387,17 @@ class MainActivity : AppCompatActivity() {
             .addConverterFactory(retrofit2.converter.gson.GsonConverterFactory.create())
             .build()
             .create(TranslationService::class.java)
+    }
+
+    private fun isNetworkConnected(): Boolean {
+        val connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val network = connectivityManager.activeNetwork ?: return false
+        val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
+
+        // Returns true if connected to Wi-Fi, Cellular, or Ethernet
+        return capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+                capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ||
+                capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
     }
 
     @SuppressLint("SetTextI18n", "NotifyDataSetChanged", "CutPasteId")
@@ -840,6 +852,10 @@ class MainActivity : AppCompatActivity() {
                         getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
                     imm.hideSoftInputFromWindow(v.windowToken, 0)
 
+                    if (!isNetworkConnected()) {
+                        Toast.makeText(this@MainActivity, "No internet connection", Toast.LENGTH_SHORT).show()
+                        return@setOnEditorActionListener true
+                    }
                     // Fire the API Call
                     lifecycleScope.launch(Dispatchers.IO) {
                         try {
@@ -1218,7 +1234,22 @@ class MainActivity : AppCompatActivity() {
                                 "Lyrisync",
                                 "Socket closed. Web API request cancelled or network dropped."
                             )
-                        } catch (e: java.io.IOException) {
+                        } catch (e: java.net.UnknownHostException){
+                            // no internet probably. No way spotify webapi is down.
+                            Log.d("Lyrisync", "man come on are you here")
+                            if (!isNetworkConnected()) {
+                                Log.d("Lyrisync", "No internet connection")
+                                // update UI to show "No Connection" state
+                                runOnUiThread {
+                                    findViewById<TextView>(R.id.NoLyricsText).text = "No Connection"
+                                    findViewById<TextView>(R.id.NoLyricsText).visibility = View.VISIBLE
+                                    findViewById<TextView>(R.id.artistNameText).text = ""
+                                    findViewById<TextView>(R.id.songTitleText).text = ""
+                                    lyricAdapter?.updateData(emptyList(), emptyList(), emptyList(), emptyList())
+                                }
+                            }
+                        }
+                        catch (e: java.io.IOException) {
                             // Catches general network timeouts and offline issues
                             Log.w("Lyrisync", "Network error during Web API poll: ${e.message}")
                         } catch (e: Exception) {
@@ -1372,6 +1403,17 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun fetchLyrics(title: String, artist: String) {
+        if (!isNetworkConnected()) {
+            Toast.makeText(this, "No internet connection", Toast.LENGTH_SHORT).show()
+
+            // Optionally update UI to show "No Connection" state
+            runOnUiThread {
+                findViewById<TextView>(R.id.NoLyricsText).text = "No Connection"
+                findViewById<TextView>(R.id.NoLyricsText).visibility = View.VISIBLE
+                lyricAdapter?.updateData(emptyList(), emptyList(), emptyList(), emptyList())
+            }
+            return
+        }
         // 1. CANCEL ANY ONGOING FETCH IMMEDIATELY
         currentFetchJob?.cancel()
 
