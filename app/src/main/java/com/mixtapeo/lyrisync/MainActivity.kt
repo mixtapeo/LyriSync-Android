@@ -320,7 +320,9 @@ class MainActivity : AppCompatActivity() {
                     }
 
                     myAccessToken = freshToken
+                    findViewById<TextView>(R.id.spotifyOfflineBanner).visibility = View.GONE
                     startHybridSyncLoop()
+                    reconnectToSpotify()
                 }
                 com.spotify.sdk.android.auth.AuthorizationResponse.Type.ERROR -> {
                     Log.e("LyriSync", "Auth error: ${response.error}")
@@ -607,7 +609,7 @@ class MainActivity : AppCompatActivity() {
             override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
                 val selected = if (position == 0) "SPOTIFY" else "UNIVERSAL"
                 sharedPrefs.edit().putString("MEDIA_PROVIDER", selected).apply()
-
+                findViewById<TextView>(R.id.spotifyOfflineBanner).visibility = View.GONE
                 // RE-ROUTE THE ENGINES ON THE FLY!
                 applyProviderRouting(selected)
             }
@@ -964,6 +966,15 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    fun isSpotifyInstalled(context: Context): Boolean {
+        return try {
+            context.packageManager.getPackageInfo("com.spotify.music", 0)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
     private fun applyProviderRouting(provider: String) {
         if (provider == "UNIVERSAL") {
             Log.i("LyriSync", "Routing to Universal Engine...")
@@ -1090,25 +1101,27 @@ class MainActivity : AppCompatActivity() {
                 isConnecting = false
                 Log.e("Lyrisync", "Connection failed: ${throwable.message}")
                 checkOnline()
-                // Start the loop here so it gracefully falls back to the Web API
+
                 if (syncAndMonitorJob == null || !syncAndMonitorJob!!.isActive) {
                     startHybridSyncLoop()
                 }
 
-                // If it fails, we DO NOT loop a reconnect attempt here anymore.
-                // We just let it fail. The startHybridSyncLoop will detect that
-                // isConnected == false and automatically switch to the Web API!
-
                 val rootCause = throwable.cause
                 if (throwable is RemoteClientException || rootCause is RemoteClientException) {
-                    // Only show the auth dialog if the user explicitly clicked a button
-                    if (forceAuthView) {
+                    // ONLY show the dialog if this was an automatic background attempt (false).
+                    // If they already clicked the button (true) and it failed, don't trap them in a loop!
+                    if (!forceAuthView) {
                         runOnUiThread { showSpotifyAuthDialog() }
+                    } else {
+                        // It failed even after they tried to force it. Let the Web API take over.
+                        runOnUiThread {
+                            Toast.makeText(this@MainActivity, "Spotify App connection failed. Using Cloud Sync.", Toast.LENGTH_LONG).show()
+                        }
                     }
                 } else {
                     runOnUiThread {
-                        findViewById<TextView>(R.id.songTitleText)?.text =
-                            "Spotify Local App Not Found"
+                        findViewById<TextView>(R.id.songTitleText)?.text = "Media not playing..."
+                        findViewById<TextView>(R.id.artistNameText)?.text = ""
                     }
                 }
             }
@@ -1198,6 +1211,7 @@ class MainActivity : AppCompatActivity() {
                             val response = spotifyApiService.getPlaybackState()
 
                             if (response.isSuccessful && response.body() != null) {
+                                if (banner.visibility == View.VISIBLE) banner.visibility = View.GONE
                                 val state = response.body()!!
                                 isWebPlaying = state.is_playing
                                 webApiProgressMs = state.progress_ms
@@ -1217,11 +1231,25 @@ class MainActivity : AppCompatActivity() {
                                 }
                             } else if (response.code() == 401) {
                                 if (!isRefreshingToken) {
-                                    isRefreshingToken = true
-                                    Log.d("Lyrisync", "401 Unauthorized. Pausing sync and opening Login.")
-                                    checkAndRefreshSpotifyToken()
+                                    // Don't auto-refresh. Tell the user what happened!
+                                    runOnUiThread {
+                                        // dont show banner if using universal
+                                        if (!getSharedPreferences("MEDIA_PROVIDER", MODE_PRIVATE).equals("UNIVERSAL")){
+                                            banner.text = "Connection lost. Tap here to re-link Spotify."
+                                            banner.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#E65100")) // Orange warning
+                                            banner.visibility = View.VISIBLE
+
+                                            // Wait for the user to explicitly tap the banner
+                                            banner.setOnClickListener {
+                                                isRefreshingToken = true
+                                                banner.text = "Connecting..."
+                                                banner.setOnClickListener(null) // Prevent double clicks
+                                                checkAndRefreshSpotifyToken()
+                                            }
+                                        }
+                                    }
                                 }
-                            // KILL THE LOOP completely. We will restart it when the user finishes logging in.
+                                // KILL THE LOOP completely. We will restart it when the user finishes logging in.
                                 return@launch
                             } else if (response.code() == 429) {
                                 val retryAfterSeconds =
@@ -1318,17 +1346,23 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private var lastPlaybackPosition: Long = -1L
-
     // <------- support funcs ------->
     // Setup Coil ImageLoader with GIF support
     private fun showFirstStartDialog(prefs: android.content.SharedPreferences) {
         val overlay = findViewById<View>(R.id.onboardingOverlay)
+        val btnOk = findViewById<Button>(R.id.btnOnboardingOk)
+        val btnUniversal = findViewById<Button>(R.id.btnUniversalPlayer) // Grab the new button
+        val btnNever = findViewById<Button>(R.id.btnOnboardingNever)
         val gifVideo = findViewById<ImageView>(R.id.gifVideo)
         val gifBroadcastView = findViewById<ImageView>(R.id.gifBroadcast)
-        val btnOk = findViewById<Button>(R.id.btnOnboardingOk)
-        val btnNever = findViewById<Button>(R.id.btnOnboardingNever)
+        if (!isSpotifyInstalled(this)) {
+            findViewById<TextView>(R.id.onboardingText)?.text =
+                "Spotify not detected. You can use the 'Universal' mode for other music apps, or search manually. For spotify, follow these steps:"
 
+            btnOk.text = "Continue with Spotify (WebAPI)"
+            btnUniversal.visibility = View.VISIBLE // Show the universal button!
+            btnNever.visibility = View.GONE        // Hide the "never" button to keep UI clean
+        }
         overlay.visibility = View.VISIBLE
 
         // 1. Create a specialized Loader for animations
@@ -1348,7 +1382,31 @@ class MainActivity : AppCompatActivity() {
 
         btnOk.setOnClickListener {
             overlay.visibility = View.GONE
+            prefs.edit { putBoolean("IS_FIRST_RUN", false) }
+            checkAndRefreshSpotifyToken() // force auth diag to avoid user having to figure out to auth
             reconnectToSpotify()
+        }
+
+        btnNever.setOnClickListener {
+            prefs.edit { putBoolean("IS_FIRST_RUN", false) }
+            overlay.visibility = View.GONE
+            reconnectToSpotify()
+        }
+
+        btnUniversal.setOnClickListener {
+            overlay.visibility = View.GONE
+
+            // Save the preference so the app remembers this choice next time
+            prefs.edit {
+                putBoolean("IS_FIRST_RUN", false)
+                putString("MEDIA_PROVIDER", "UNIVERSAL")
+            }
+
+            // Update the Settings Spinner UI so it matches their choice
+            findViewById<android.widget.Spinner>(R.id.providerSpinner).setSelection(1)
+
+            // Start the Universal Engine directly instead of Spotify!
+            applyProviderRouting("UNIVERSAL")
         }
 
         btnNever.setOnClickListener {

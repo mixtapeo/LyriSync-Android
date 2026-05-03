@@ -4,6 +4,6 @@
 
     <string-array name="provider_options">
         <item>Spotify</item>
-        <item>Local (Media API)</item>
+        <item>Universal</item>
     </string-array>
 </resources>
