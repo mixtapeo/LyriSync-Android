@@ -320,7 +320,17 @@ class MainActivity : AppCompatActivity() {
                     }
 
                     myAccessToken = freshToken
-                    findViewById<TextView>(R.id.spotifyOfflineBanner).visibility = View.GONE
+                    val banner = findViewById<com.google.android.material.card.MaterialCardView>(R.id.spotifyOfflineBanner)
+                    if (banner.visibility == View.VISIBLE) {
+                        banner.animate()
+                            .alpha(0f)
+                            .translationY(50f)
+                            .setDuration(300)
+                            .withEndAction {
+                                banner.visibility = View.GONE
+                            }
+                            .start()
+                    }
                     startHybridSyncLoop()
                     reconnectToSpotify()
                 }
@@ -609,7 +619,7 @@ class MainActivity : AppCompatActivity() {
             override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
                 val selected = if (position == 0) "SPOTIFY" else "UNIVERSAL"
                 sharedPrefs.edit().putString("MEDIA_PROVIDER", selected).apply()
-                findViewById<TextView>(R.id.spotifyOfflineBanner).visibility = View.GONE
+                findViewById<com.google.android.material.card.MaterialCardView>(R.id.spotifyOfflineBanner).visibility = View.GONE
                 // RE-ROUTE THE ENGINES ON THE FLY!
                 applyProviderRouting(selected)
             }
@@ -1149,7 +1159,8 @@ class MainActivity : AppCompatActivity() {
 
             var timeSinceLastWebPoll = 4000
             var timeSinceLastStaleCheck = 0 // <--- NEW: Grace period counter
-            val banner = findViewById<TextView>(R.id.spotifyOfflineBanner)
+            val banner = findViewById<com.google.android.material.card.MaterialCardView>(R.id.spotifyOfflineBanner)
+            var bannerText = findViewById<TextView>(R.id.offlineBannerText)
 
             while (isActive) {
                 val isSdkConnected = spotifyAppRemote?.isConnected == true
@@ -1158,7 +1169,16 @@ class MainActivity : AppCompatActivity() {
                     // ---------------------------------------------------------
                     // ENGINE 1: LOCAL SDK MODE (Fast, 100ms UI updates)
                     // ---------------------------------------------------------
-                    banner.visibility = View.GONE
+                    if (banner.visibility == View.VISIBLE) {
+                        banner.animate()
+                            .alpha(0f)
+                            .translationY(50f)
+                            .setDuration(300)
+                            .withEndAction {
+                                banner.visibility = View.GONE
+                            }
+                            .start()
+                    }
 
                     if (!isSdkConnected) {
                         Log.w("Lyrisync", "SDK Disconnected! Switching to Web API Fallback.")
@@ -1211,7 +1231,17 @@ class MainActivity : AppCompatActivity() {
                             val response = spotifyApiService.getPlaybackState()
 
                             if (response.isSuccessful && response.body() != null) {
-                                if (banner.visibility == View.VISIBLE) banner.visibility = View.GONE
+                                if (banner.visibility != View.VISIBLE) {
+                                    banner.alpha = 0f
+                                    banner.translationY = 50f // Start slightly lower
+                                    banner.visibility = View.VISIBLE
+
+                                    banner.animate()
+                                        .alpha(1f)
+                                        .translationY(0f) // Slide up to its normal position
+                                        .setDuration(300)
+                                        .start()
+                                }
                                 val state = response.body()!!
                                 isWebPlaying = state.is_playing
                                 webApiProgressMs = state.progress_ms
@@ -1235,14 +1265,14 @@ class MainActivity : AppCompatActivity() {
                                     runOnUiThread {
                                         // dont show banner if using universal
                                         if (!getSharedPreferences("MEDIA_PROVIDER", MODE_PRIVATE).equals("UNIVERSAL")){
-                                            banner.text = "Connection lost. Tap here to re-link Spotify."
+                                            bannerText.text = "Connection lost. Tap here to re-link Spotify."
                                             banner.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#E65100")) // Orange warning
                                             banner.visibility = View.VISIBLE
 
                                             // Wait for the user to explicitly tap the banner
                                             banner.setOnClickListener {
                                                 isRefreshingToken = true
-                                                banner.text = "Connecting..."
+                                                bannerText.text = "Connecting..."
                                                 banner.setOnClickListener(null) // Prevent double clicks
                                                 checkAndRefreshSpotifyToken()
                                             }
@@ -1257,7 +1287,7 @@ class MainActivity : AppCompatActivity() {
                                 Log.e("Lyrisync", "429 RATE LIMIT: Wait ${retryAfterSeconds}s.")
                                 timeSinceLastWebPoll = -(retryAfterSeconds * 1000) // Apply Penalty
 
-                                banner.text = "API Limit Hit. Pausing for ${retryAfterSeconds}s..."
+                                bannerText.text = "API Limit Hit. Pausing for ${retryAfterSeconds}s..."
                                 banner.backgroundTintList =
                                     ColorStateList.valueOf(Color.parseColor("#D32F2F"))
                             }

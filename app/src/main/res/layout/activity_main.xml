@@ -14,19 +14,44 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent">
 
-        <TextView
+        <com.google.android.material.card.MaterialCardView
             android:id="@+id/spotifyOfflineBanner"
-            android:layout_width="match_parent"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:background="#D32F2F"
-            android:padding="8dp"
-            android:text="Spotify disconnected. Attempting to reconnect..."
-            android:textAlignment="center"
-            android:textColor="@android:color/white"
-            android:textSize="14sp"
-            android:textStyle="bold"
+            android:layout_gravity="bottom|center_horizontal"
+            android:layout_marginBottom="96dp"
             android:visibility="gone"
-            android:elevation="4dp" />
+            app:cardCornerRadius="24dp"
+            app:cardElevation="8dp"
+            app:strokeWidth="0dp">
+
+            <!-- A layout to hold an icon and the text side-by-side -->
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingHorizontal="20dp"
+                android:paddingVertical="12dp">
+
+                <ImageView
+                    android:layout_width="18dp"
+                    android:layout_height="18dp"
+                    android:layout_marginEnd="8dp"
+                    android:src="@android:drawable/ic_dialog_info"
+                    app:tint="@android:color/white" />
+
+                <TextView
+                    android:id="@+id/offlineBannerText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Spotify disconnected"
+                    android:textColor="@android:color/white"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+        </com.google.android.material.card.MaterialCardView>
 
         <LinearLayout
             android:id="@+id/homeScreen"
